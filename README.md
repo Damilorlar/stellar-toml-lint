@@ -308,20 +308,14 @@ interface Diagnostic {
 
 Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 
-**File** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM detection.
- `https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
- `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields;
- and empty string values in documentation fields. Under `--check-network`, validates that the domain
- portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
-
-`https://` on every endpoint field; no trailing slashes on service endpoints
-(`WEB_AUTH_ENDPOINT`, `TRANSFER_SERVER`, `TRANSFER_SERVER_SEP0024`, `KYC_SERVER`,
-`ANCHOR_QUOTE_SERVER`, `DIRECT_PAYMENT_SERVER` — a trailing `/` turns client sub-routes into
-`//info` and triggers redirects that strip `Authorization`); checksum-valid `SIGNING_KEY`,
-`URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields; empty string values in documentation fields; and uppercase-only Stellar public keys
-(`SIGNING_KEY`, `[[CURRENCIES]].issuer`, `[[VALIDATORS]].PUBLIC_KEY`) — lowercase base32 letters are
-flagged with the corrected uppercase form, since wallets compare the string when matching accounts.
-
+**File and general fields** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM
+detection, `https://` on every endpoint field, and trailing-slash detection on service endpoints;
+checksum-valid `SIGNING_KEY`, `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`;
+uppercase-only Stellar public keys; unknown fields; and empty string values in documentation fields.
+Deprecated configuration emits actionable `general/deprecated-field` warnings for `AUTH_SERVER`,
+legacy `DEPOSIT_SERVER`, unencrypted `FEDERATION_SERVER`, and documentation keys placed at the
+top level instead of under `[DOCUMENTATION]`. Under `--check-network`, validates that the domain
+portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
 
 **Cross-field dependencies** — `DIRECT_PAYMENT_SERVER` (SEP-31) requires `KYC_SERVER` (SEP-12);
 `WEB_AUTH_ENDPOINT` (SEP-10) requires `SIGNING_KEY`; SEP-45 needs both its endpoint and contract ID;

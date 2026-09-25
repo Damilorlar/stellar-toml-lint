@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `general/deprecated-field` warns about legacy `AUTH_SERVER` and `DEPOSIT_SERVER` fields,
+  unencrypted `FEDERATION_SERVER` values, and documentation keys placed outside `[DOCUMENTATION]`,
+  with replacement syntax for SEP-10, SEP-12, SEP-6, and SEP-24 (#126).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
