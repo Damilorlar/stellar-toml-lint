@@ -36,6 +36,7 @@ import { checkSep6 } from './cross-sep/sep6.js';
 import { checkSep10Replay } from './protocols/sep10-replay.js';
 import { checkCollateralGovernance } from './security/collateral-governance.js';
 import { allRules } from './rules/index.js';
+import { PRESETS, resolvePreset, type PresetName } from './presets.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
 import {
   generateAnchorPlatformConfig,
@@ -71,6 +72,7 @@ interface Cli {
   quiet: boolean;
   showHelp: boolean;
   rules: RuleOverrides;
+  preset?: PresetName;
   maxWarnings?: number;
   checkNetwork: boolean;
   verifySep10: boolean;
@@ -114,6 +116,8 @@ OPTIONS
       --off <rule>        Disable a rule (repeatable)
       --error <rule>      Raise a rule to error (repeatable)
       --warn <rule>       Lower a rule to warning (repeatable)
+      --preset <name>     Start from a role's rule bundle: validator, anchor-sep24,
+                          or issuer (see PRESETS)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
       --lsp               Run as a Language Server on stdio (diagnostics,
@@ -164,6 +168,30 @@ CONFIG
                          CLI flags always override the file; a malformed config
                          or an unknown rule id exits with code 2.
 
+PRESETS
+  --preset <name>        Apply a role's rule bundle before anything else, so a
+                         team that is only half an ecosystem does not have to
+                         copy a long --off chain into every workflow:
+
+    validator            [[VALIDATORS]] and general file checks stay on; the
+                         currency issuance and anchor service rules are off.
+                         Duplicate validator hosts and aliases fail the build.
+    anchor-sep24         SEP-24, SEP-10, and currency requirements at error
+                         (a transfer server with no [[CURRENCIES]], an
+                         incomplete SEP-45 pair, an undescribed anchored
+                         asset). Validator rules are off — an anchor runs no
+                         validator nodes.
+    issuer               Currency, collateral, and documentation completeness
+                         at error. Anchor service rules are off — a standalone
+                         issuer runs no servers.
+
+                         A preset is a baseline, not a policy: an explicit
+                         --off, --warn, or --error on the same command line
+                         still wins, whatever order the flags appear in. For the
+                         same reason a preset overrides .stellartomlrc.json.
+                         An unknown name lists the available presets and exits
+                         with code 2.
+
 EXIT CODES
   0  no errors     1  errors found     2  bad usage, unmatched glob, or I/O failure
 
@@ -171,6 +199,7 @@ EXAMPLES
   stellar-toml-lint public/.well-known/stellar.toml
   stellar-toml-lint "accounts/*/stellar.toml"
   stellar-toml-lint --domain example.com --strict
+  stellar-toml-lint --preset validator public/.well-known/stellar.toml
   stellar-toml-lint -f sarif > results.sarif
   stellar-toml-lint --graph mermaid > diagram.mmd
   stellar-toml-lint --graph dot --graph-contracts > diagram.dot
@@ -742,6 +771,14 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         break;
       }
 
+      case '--preset': {
+        const value = requireValue(argv, ++i, arg);
+        // Resolved here rather than stored as a name, so an unknown preset is
+        // the same exit-2 usage error an unknown rule id is.
+        cli.preset = resolvePreset(value).name;
+        break;
+      }
+
       case '-q':
       case '--quiet':
         cli.quiet = true;
@@ -763,6 +800,13 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         if (arg.startsWith('--')) throw new Error(`Unknown option "${arg}".`);
         cli.paths.push(arg);
     }
+  }
+
+  if (cli.preset !== undefined) {
+    // The bundle is laid down *after* the loop, so a rule flag wins whether it
+    // was typed before or after `--preset`: the preset is a baseline, and the
+    // command line is the intent for this run.
+    cli.rules = { ...PRESETS[cli.preset].rules, ...cli.rules };
   }
 
   return cli;
