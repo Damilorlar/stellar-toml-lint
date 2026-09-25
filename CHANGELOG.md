@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `general/invalid-twitter-handle` (warning) validates `[DOCUMENTATION].ORG_TWITTER` as a bare
+  Twitter/X handle (`^[A-Za-z0-9_]{1,15}$`). A leading `@` or a pasted `twitter.com`/`x.com` profile
+  URL is reported with the exact bare handle to use instead and carries a quick-fix that applies it,
+  while an over-long or out-of-alphabet handle says which part of the grammar it breaks. The field
+  moves out of `documentation/social-handles`, which now covers `ORG_KEYBASE` only, so one problem
+  produces exactly one diagnostic (#137).
 - `security/tls-cert-expired` (error) and `security/tls-cert-expiring-soon` (warning) under
   `--check-network`: every HTTPS endpoint the file declares is presented with one short TLS
   handshake and its peer certificate's `valid_to` is read, so an already-expired certificate fails
