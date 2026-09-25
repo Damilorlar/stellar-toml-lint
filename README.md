@@ -120,7 +120,7 @@ it was before.
 | `--check-network`           | Verify accounts, CORS pre-flight responses, `HORIZON_URL`, SEP-8 flags, `ANCHOR_QUOTE_SERVER`, and SEP-6 `/info` online |
 | `--verify-sep10`            | Verify SEP-10 nonce uniqueness and replay resistance (requires `--check-network`)                                       |
 | `--crawl-peers`             | Discover validator peers with overlay `GET_PEERS` messages (requires `--check-network`)                                 |
-| `--verify-dnssec`           | Compare A/AAAA answers across Cloudflare, Google, and Quad9 DoH resolvers (requires `--check-network`)                  |
+| `--check-network`           | Verify accounts, CORS pre-flight responses, HORIZON_URL, SEP-8 flags, ANCHOR_QUOTE_SERVER, SEP-6 /info, and cross-check declared validator public keys against active network telemetry online |
 | `--follow-links`            | Fetch and lint the `toml` pointers in `CURRENCIES` (implied by `--domain`)                                              |
 | `--check-contracts`         | Verify Soroban contract/WASM TTL and the SEP-45 auth interface online                                                   |
 | `--soroban-rpc <url>`       | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`)                                       |
@@ -516,6 +516,10 @@ into the summary.
 
 ### Pre-commit
 
+The repo ships a `.pre-commit-hooks.yaml` defining `id: stellar-toml-lint` with two consumption paths:
+
+**Node (most developers)**
+
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -524,8 +528,22 @@ repos:
       - id: stellar-toml-lint
         name: Lint stellar.toml
         entry: npx stellar-toml-lint
-        language: system
-        files: '\.well-known/stellar\.toml$'
+        language: node
+        files: '(?:.*/)?\.?stellar\.toml$'
+```
+
+**Docker (no local node required)**
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: stellar-toml-lint
+        name: Lint stellar.toml
+        entry: stellar-toml-lint
+        language: docker_image
+        files: '(?:.*/)?\.?stellar\.toml$'
 ```
 
 ### Offline and air-gapped CI
