@@ -3,6 +3,7 @@ import { generalRules } from './general.js';
 import { documentationRules } from './documentation.js';
 import { principalRules } from './principals.js';
 import { currencyRules } from './currencies.js';
+import { regulatedFlagRules } from './regulated-flags.js';
 import { validatorRules } from './validators.js';
 import { validatorDedupRules } from './validator-dedup.js';
 import { securityRules } from './security.js';
@@ -29,6 +30,7 @@ export const allRules: Rule[] = [
   ...documentationRules,
   ...principalRules,
   ...currencyRules,
+  ...regulatedFlagRules,
   ...maxDecimalsRules,
   ...validatorRules,
   ...validatorDedupRules,
@@ -59,6 +61,7 @@ export {
   documentationRules,
   principalRules,
   currencyRules,
+  regulatedFlagRules,
   maxDecimalsRules,
   validatorRules,
   validatorDedupRules,
