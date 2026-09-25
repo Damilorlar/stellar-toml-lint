@@ -22,6 +22,7 @@ import { cryptoAuditorRules } from '../overlay/crypto-auditor.js';
 import { historyPublishRules } from '../history/publish-validator.js';
 import { dnsIntegrityRules } from '../security/dns-integrity.js';
 import { certExpiryRules } from '../network/cert-expiry.js';
+import { fixedSupplyLockRules } from './fixed-supply-audit.js';
 
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
@@ -30,6 +31,7 @@ export const allRules: Rule[] = [
   ...documentationRules,
   ...principalRules,
   ...currencyRules,
+  ...fixedSupplyLockRules,
   ...regulatedFlagRules,
   ...maxDecimalsRules,
   ...validatorRules,
@@ -62,6 +64,7 @@ export {
   documentationRules,
   principalRules,
   currencyRules,
+  fixedSupplyLockRules,
   regulatedFlagRules,
   maxDecimalsRules,
   validatorRules,
