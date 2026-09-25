@@ -61,7 +61,8 @@ npx stellar-toml-lint                      # or just run it
 brew install anchor-tools/tap/stellar-toml-lint
 ```
 
-Requires Node.js 20 or newer. Two runtime dependencies: `smol-toml` and `@stellar/stellar-base`.
+Requires Node.js 20 or newer. Runtime dependencies: `smol-toml`, `@stellar/stellar-base`, and the
+pure-JS `@noble/curves` and `@noble/hashes` that `@stellar/stellar-base` already installs.
 Commit a `.stellartomlrc.json` next to your `stellar.toml` to record the project's rule policy once
 instead of repeating `--off`/`--warn` flags in every workflow (see [Usage](#usage)).
 
@@ -111,47 +112,48 @@ it was before.
 
 ### Options
 
-| Flag                        | Effect                                                                                                                                          |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-d, --domain <d>`          | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks                                                                           |
-| `-f, --format <fmt>`        | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`, `html`, `checkstyle`, `markdown`                                                |
-| `--strict`                  | Treat warnings as errors                                                                                                                        |
-| `--max-warnings <n>`        | Fail if warnings exceed `n`                                                                                                                     |
-| `--fail-on <severity>`      | Exit `1` when any diagnostic meets or exceeds `error`, `warning`, or `info`; takes precedence over `--strict`                                   |
-| `--check-network`           | Verify accounts, CORS pre-flight responses, `HORIZON_URL`, SEP-8 flags, TLS certificate expiry, `ANCHOR_QUOTE_SERVER`, and SEP-6 `/info` online |
-| `--verify-sep10`            | Verify SEP-10 nonce uniqueness and replay resistance (requires `--check-network`)                                                               |
-| `--crawl-peers`             | Discover validator peers with overlay `GET_PEERS` messages (requires `--check-network`)                                                         |
-| `--verify-dnssec`           | Compare A/AAAA answers across Cloudflare, Google, and Quad9 DoH resolvers (requires `--check-network`)                                          |
-| `--follow-links`            | Fetch and lint the `toml` pointers in `CURRENCIES` (implied by `--domain`)                                                                      |
-| `--check-contracts`         | Verify Soroban contract/WASM TTL and the SEP-45 auth interface online                                                                           |
-| `--soroban-rpc <url>`       | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`)                                                               |
-| `--mock-fixtures <dir>`     | Serve network checks from recorded JSON fixtures under `<dir>`, never the network                                                               |
-| `--webhook-slack <url>`     | POST a Slack Block Kit card with the run summary                                                                                                |
-| `--webhook-discord <url>`   | POST a Discord embed with the run summary                                                                                                       |
-| `--off <rule>`              | Disable a rule (repeatable)                                                                                                                     |
-| `--error <rule>`            | Raise a rule to error (repeatable)                                                                                                              |
-| `--warn <rule>`             | Lower a rule to warning (repeatable)                                                                                                            |
-| `--preset <name>`           | Start from a role's rule bundle: `validator`, `anchor-sep24`, or `issuer`                                                                       |
-| `-q, --quiet`               | Show errors only                                                                                                                                |
-| `--show-help-urls`          | Print the spec link for each finding                                                                                                            |
-| `--list-rules`              | Print every rule and exit                                                                                                                       |
-| `--completion <shell>`      | Print a `bash`, `zsh`, or `fish` completion script and exit                                                                                     |
-| `--no-suggestions`          | Hide diagnostic suggestions in the output                                                                                                       |
-| `--color`                   | Force colour on, overriding `NO_COLOR`                                                                                                          |
-| `--no-color`                | Force colour off                                                                                                                                |
-| `-w, --watch`               | Watch files and re-run on changes                                                                                                               |
-| `-i, --interactive`         | Full-screen dashboard to walk the findings (falls back to text)                                                                                 |
-| `--lsp`                     | Run as a Language Server on stdio (diagnostics, quick-fixes, hover)                                                                             |
-| `--graph <fmt>`             | Generate architecture diagram: `mermaid` or `dot`                                                                                               |
-| `--graph-contracts`         | Include Soroban contracts in diagram                                                                                                            |
-| `--graph-validators`        | Include validators in diagram                                                                                                                   |
-| `--graph-color`             | Color nodes by protocol type                                                                                                                    |
-| `--policy <file>`           | Evaluate enterprise policy file (JSON or YAML)                                                                                                  |
-| `--export-ap-config`        | Export Anchor Platform YAML config to stdout                                                                                                    |
-| `--generate-openapi <file>` | Generate an OpenAPI 3.1 spec (json or yaml extension)                                                                                           |
-| `--badge-svg <file>`        | Generate an SVG compliance badge                                                                                                                |
-| `--badge-json <file>`       | Generate a Shields.io JSON endpoint                                                                                                             |
-| `--json-schema`             | Print a JSON Schema (Draft 2020-12) for stellar.toml to stdout                                                                                  |
+| Flag                        | Effect                                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-d, --domain <d>`          | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks                                                                                        |
+| `-f, --format <fmt>`        | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`, `html`, `checkstyle`, `markdown`                                                             |
+| `--strict`                  | Treat warnings as errors                                                                                                                                     |
+| `--max-warnings <n>`        | Fail if warnings exceed `n`                                                                                                                                  |
+| `--fail-on <severity>`      | Exit `1` when any diagnostic meets or exceeds `error`, `warning`, or `info`; takes precedence over `--strict`                                                |
+| `--check-network`           | Verify accounts, CORS pre-flight responses, `HORIZON_URL`, SEP-8 flags, TLS certificate expiry, `ANCHOR_QUOTE_SERVER`, and SEP-6 `/info` online              |
+| `--verify-sep10`            | Verify SEP-10 nonce uniqueness and replay resistance (requires `--check-network`)                                                                            |
+| `--crawl-peers`             | Discover validator peers with overlay `GET_PEERS` messages (requires `--check-network`)                                                                      |
+| `--verify-dnssec`           | Compare A/AAAA answers across Cloudflare, Google, and Quad9 DoH resolvers (requires `--check-network`)                                                       |
+| `--follow-links`            | Fetch and lint the `toml` pointers in `CURRENCIES` (implied by `--domain`)                                                                                   |
+| `--check-contracts`         | Verify Soroban contracts exist on chain, their WASM is not evicted, their TTL, and the SEP-45 auth interface                                                 |
+| `--rpc-url <url>`           | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`; `--soroban-rpc` is an alias)                                               |
+| `--serve-mock [port]`       | Serve the file and mock SEP-10/24/38 endpoints on localhost (default port `8080`); see [mock server](#local-mock-server-for-wallet-and-frontend-development) |
+| `--mock-fixtures <dir>`     | Serve network checks from recorded JSON fixtures under `<dir>`, never the network                                                                            |
+| `--webhook-slack <url>`     | POST a Slack Block Kit card with the run summary                                                                                                             |
+| `--webhook-discord <url>`   | POST a Discord embed with the run summary                                                                                                                    |
+| `--off <rule>`              | Disable a rule (repeatable)                                                                                                                                  |
+| `--error <rule>`            | Raise a rule to error (repeatable)                                                                                                                           |
+| `--warn <rule>`             | Lower a rule to warning (repeatable)                                                                                                                         |
+| `--preset <name>`           | Start from a role's rule bundle: `validator`, `anchor-sep24`, or `issuer`                                                                                    |
+| `-q, --quiet`               | Show errors only                                                                                                                                             |
+| `--show-help-urls`          | Print the spec link for each finding                                                                                                                         |
+| `--list-rules`              | Print every rule and exit                                                                                                                                    |
+| `--completion <shell>`      | Print a `bash`, `zsh`, or `fish` completion script and exit                                                                                                  |
+| `--no-suggestions`          | Hide diagnostic suggestions in the output                                                                                                                    |
+| `--color`                   | Force colour on, overriding `NO_COLOR`                                                                                                                       |
+| `--no-color`                | Force colour off                                                                                                                                             |
+| `-w, --watch`               | Watch files and re-run on changes                                                                                                                            |
+| `-i, --interactive`         | Full-screen dashboard to walk the findings (falls back to text)                                                                                              |
+| `--lsp`                     | Run as a Language Server on stdio (diagnostics, quick-fixes, hover)                                                                                          |
+| `--graph <fmt>`             | Generate architecture diagram: `mermaid` or `dot`                                                                                                            |
+| `--graph-contracts`         | Include Soroban contracts in diagram                                                                                                                         |
+| `--graph-validators`        | Include validators in diagram                                                                                                                                |
+| `--graph-color`             | Color nodes by protocol type                                                                                                                                 |
+| `--policy <file>`           | Evaluate enterprise policy file (JSON or YAML)                                                                                                               |
+| `--export-ap-config`        | Export Anchor Platform YAML config to stdout                                                                                                                 |
+| `--generate-openapi <file>` | Generate an OpenAPI 3.1 spec (json or yaml extension)                                                                                                        |
+| `--badge-svg <file>`        | Generate an SVG compliance badge                                                                                                                             |
+| `--badge-json <file>`       | Generate a Shields.io JSON endpoint                                                                                                                          |
+| `--json-schema`             | Print a JSON Schema (Draft 2020-12) for stellar.toml to stdout                                                                                               |
 
 Every flag above takes precedence over the [configuration file](#configuration-file), and
 `--preset` — being a flag — takes precedence over it too. `--fail-on` names the exit-code threshold
@@ -332,6 +334,43 @@ endpoint containing:
 
 The daemon uses exponential backoff on transient network failures, capping at 30 seconds.
 Pass `--interval <ms>` to control the polling frequency. Send `SIGINT` to stop the daemon.
+
+### Local mock server for wallet and frontend development
+
+`--serve-mock [port]` turns a local `stellar.toml` into a mock anchor, so a wallet, frontend, or SDK
+client can be developed against the endpoints the file declares before any infrastructure exists. It
+runs on Node's built-in `node:http` — no server framework is installed — and defaults to port
+`8080`:
+
+```console
+$ stellar-toml-lint --serve-mock public/.well-known/stellar.toml
+stellar-toml-lint mock server listening on http://localhost:8080
+
+  GET  http://localhost:8080/.well-known/stellar.toml  The linted stellar.toml
+  GET  http://localhost:8080/auth                      SEP-10 challenge transaction (?account=G...)
+  GET  http://localhost:8080/sep24/info                SEP-24 assets from [[CURRENCIES]]
+  GET  http://localhost:8080/sep38/info                SEP-38 assets from [[CURRENCIES]]
+  GET  http://localhost:8080/sep38/prices              SEP-38 indicative prices
+```
+
+| Endpoint                        | Response                                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /.well-known/stellar.toml` | The file byte for byte, `text/plain` with `Access-Control-Allow-Origin: *`                                                                              |
+| `GET /auth?account=G...`        | A SEP-10 challenge: sequence `0`, 15-minute time bounds, a `<home_domain> auth` nonce and `web_auth_domain` operation, signed, for `NETWORK_PASSPHRASE` |
+| `GET /sep24/info`               | Every `[[CURRENCIES]]` code enabled for deposit and withdrawal                                                                                          |
+| `GET /sep38/info`               | `stellar:CODE:ISSUER`, `stellar:native`, and `iso4217:XXX` (for fiat-anchored currencies) identifiers                                                   |
+| `GET /sep38/prices`             | A flat mock price of `1` for every other declared asset (`?sell_asset=&sell_amount=` or `?buy_asset=&buy_amount=`)                                      |
+
+Every response carries `Access-Control-Allow-Origin: *`, so a browser app on another port can call
+it. `stellar.toml` publishes only the public `SIGNING_KEY`, so challenges are signed by an ephemeral
+key (named in the banner) unless the matching secret is supplied:
+
+```bash
+STELLAR_TOML_MOCK_SIGNING_SECRET=S... stellar-toml-lint --serve-mock 9000 stellar.toml
+```
+
+Use a throwaway testnet key for this; never a production signing secret. `Ctrl+C` (`SIGINT`) or
+`SIGTERM` closes the server and exits `0`.
 
 ### Code Migration Engine
 
@@ -776,6 +815,21 @@ requiring a declared transfer server; SEP-8 regulated assets carrying an approva
 message, and signature lists of equal length; `toml` pointer entries carrying nothing else;
 duplicate assets.
 
+Collateral signatures are verified cryptographically, offline, not just counted. For each position
+`i`, `collateral_address_signatures[i]` must be the signature of `collateral_address_messages[i]` by
+`collateral_addresses[i]`:
+
+| Address                           | Scheme                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| Stellar `G...`                    | Ed25519 over the raw message, or over the SEP-53 `Stellar Signed Message` digest |
+| Bitcoin `1...`, `3...`, `bc1q...` | BIP-137 compact secp256k1 message signature (Electrum segwit headers too)        |
+| Ethereum `0x...`                  | EIP-191 `personal_sign`; the signature may be base64 or `0x` hex                 |
+
+A signature that does not verify emits `currencies/collateral-signature-invalid` (error); one that is
+not base64 (or `0x` hex for Ethereum), or decodes to the wrong length, emits
+`currencies/collateral-signature-malformed` (error). Address families the linter cannot verify, such
+as taproot `bc1p...` (BIP-322), are skipped rather than reported.
+
 Asset-anchored currencies (`is_asset_anchored = true`) must use one of `fiat`, `crypto`, `stock`,
 `bond`, `commodity`, `real_estate`, or `other` for `anchor_asset_type`. Missing or invalid values
 emit `currencies/missing-anchor-asset-type` as an error. Missing `anchor_asset` metadata emits the
@@ -870,14 +924,26 @@ control who may hold the asset and to be able to freeze offenders. A Horizon out
 account, or unparseable response degrades to the `currencies/regulated-issuer-flags-unverifiable`
 warning instead of failing the run.
 
-**Contracts** (with `--check-contracts`) — queries the Soroban RPC for the contract instance and
-WASM behind every `[[CURRENCIES]].contract` and `WEB_AUTH_CONTRACT_ID`, comparing each
-`liveUntilLedgerSeq` against the network's `latestLedger`. When the effective TTL is within roughly a
-day of expiry it emits `soroban/contract-ttl-expiring-soon` (warning); past that point, or when the
-instance or WASM entry is absent entirely, it emits `soroban/contract-expired` (error). An
-unreachable or malformed RPC degrades to `soroban/contract-ttl-unavailable` (warning). The RPC
-endpoint is derived from `NETWORK_PASSPHRASE` (Public, Testnet, or Futurenet) and can be overridden
-with `--soroban-rpc`.
+**Contracts** (with `--check-contracts`) — a checksummed `C...` address says nothing about whether
+a contract was ever deployed there, so the linter queries the Soroban RPC's `getLedgerEntries` for
+the contract instance and WASM behind every `[[CURRENCIES]].contract` and `WEB_AUTH_CONTRACT_ID`:
+
+| Rule                                 | Severity | Fires when                                                         |
+| ------------------------------------ | -------- | ------------------------------------------------------------------ |
+| `soroban/contract-not-found`         | error    | The contract has no instance entry on the ledger                   |
+| `soroban/contract-evicted`           | error    | The instance exists but its WASM code entry was archived/evicted   |
+| `soroban/contract-expired`           | error    | The instance or WASM `liveUntilLedgerSeq` is behind `latestLedger` |
+| `soroban/contract-ttl-expiring-soon` | warning  | The effective TTL runs out within roughly a day                    |
+| `soroban/contract-ttl-unavailable`   | warning  | The RPC was unreachable, timed out, or answered malformed JSON     |
+
+An RPC outage never fails the run: every request is bounded by a 10-second timeout and degrades to
+the `soroban/contract-ttl-unavailable` warning. The RPC endpoint is derived from `NETWORK_PASSPHRASE`
+(`https://soroban-rpc.mainnet.stellar.org` for Public, `https://soroban-testnet.stellar.org` for
+Testnet, or Futurenet) and can be overridden with `--rpc-url`:
+
+```bash
+stellar-toml-lint stellar.toml --check-contracts --rpc-url https://my-rpc.example.com
+```
 
 For `WEB_AUTH_CONTRACT_ID`, the deployed WASM's `contractspecv0` custom section is read and its
 exported functions checked. A contract whose spec declares functions but not `web_auth_verify`
@@ -885,6 +951,21 @@ emits `soroban/invalid-auth-contract-interface` (error): the file would pass SEP
 no wallet could ever complete authentication. A contract whose interface cannot be read — an
 unreachable RPC, an archived entry, or a module with no spec section — stays silent rather than
 failing on a guess.
+
+For every `[[CURRENCIES]]` entry with a `contract`, the SEP-41 metadata the token stores in its
+instance storage (the `METADATA` map of `decimal`, `name`, and `symbol` that the token SDK and the
+Stellar Asset Contract write) is compared against the entry, since wallets read these values from the
+contract and not from the file:
+
+| Rule                        | Severity | Compares                                     |
+| --------------------------- | -------- | -------------------------------------------- |
+| `soroban/symbol-mismatch`   | error    | on-chain `symbol` vs `code`                  |
+| `soroban/decimals-mismatch` | error    | on-chain `decimal` vs `display_decimals`     |
+| `soroban/name-mismatch`     | warning  | on-chain `name` vs `name` (skipped for SACs) |
+
+Each finding names the on-chain value and the file's value, and suggests the exact edit. A field the
+file leaves unset, or metadata that cannot be read, is not compared. A Stellar Asset Contract's
+on-chain name is always `CODE:ISSUER`, so its `name` is never compared.
 
 **SEP-12 customer schemas** (with `--check-network`) — queries `KYC_SERVER/customer` and checks the
 customer type schemas the anchor declares (`sep31-sender`, `sep31-receiver`, `sep6-deposit`, …).

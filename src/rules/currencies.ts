@@ -1,7 +1,8 @@
-import type { Rule, RuleContext } from '../types.js';
+import type { Diagnostic, Rule, RuleContext, RuleOverrides } from '../types.js';
 import { displayDecimalsRules } from './display-decimals-audit.js';
 import { anchoredAssetRules } from './anchored-asset-rules.js';
 import { assetCodeFormatRules } from './asset-code-format.js';
+import { verifyCollateralSignature } from '../crypto/collateral.js';
 import {
   ANCHOR_ASSET_TYPES,
   CURRENCY_STATUSES,
@@ -63,20 +64,207 @@ function eachCurrency(
     if (isTomlPointer(entry)) return;
     visit(entry, `CURRENCIES[${i}]`, i);
   });
-} /**
- * The Soroban contract ids declared in `[[CURRENCIES]]`, with the path each
- * came from, for network checks. Native assets and `toml` pointers are not
- * contracts this file owns, so they are skipped.
+} /** A `[[CURRENCIES]]` entry backed by a Soroban contract. */
+export interface ContractCurrency {
+  entry: Record<string, unknown>;
+  index: number;
+  id: string;
+  path: string;
+}
+
+/**
+ * The currency entries that name a Soroban contract, for network checks.
+ * Native assets and `toml` pointers are not contracts this file owns, so they
+ * are skipped.
  */
-export function contractIdsOf(doc: Record<string, unknown>): { id: string; path: string }[] {
-  const contracts: { id: string; path: string }[] = [];
+export function contractCurrenciesOf(doc: Record<string, unknown>): ContractCurrency[] {
+  const contracts: ContractCurrency[] = [];
   currenciesOf(doc).forEach((entry, index) => {
     if (isTomlPointer(entry) || isNativeAsset(entry)) return;
     if (isString(entry.contract) && isContractId(entry.contract)) {
-      contracts.push({ id: entry.contract, path: `CURRENCIES[${index}].contract` });
+      contracts.push({ entry, index, id: entry.contract, path: `CURRENCIES[${index}].contract` });
     }
   });
   return contracts;
+}
+
+/**
+ * The Soroban contract ids declared in `[[CURRENCIES]]`, with the path each
+ * came from.
+ */
+export function contractIdsOf(doc: Record<string, unknown>): { id: string; path: string }[] {
+  return contractCurrenciesOf(doc).map(({ id, path }) => ({ id, path }));
+}
+
+/** SEP-41 token metadata, as read from a contract's instance storage. */
+export interface Sep41Metadata {
+  symbol?: string;
+  name?: string;
+  decimal?: number;
+  /**
+   * True for a Stellar Asset Contract. Its on-chain `name` is `CODE:ISSUER`,
+   * never a display name, so it is not compared against `name`.
+   */
+  stellarAsset: boolean;
+}
+
+const SYMBOL_MISMATCH_RULE = 'soroban/symbol-mismatch';
+const DECIMALS_MISMATCH_RULE = 'soroban/decimals-mismatch';
+const NAME_MISMATCH_RULE = 'soroban/name-mismatch';
+
+/**
+ * Compares a currency entry against the SEP-41 metadata its contract reports.
+ *
+ * Wallets read `symbol`, `decimal`, and `name` from the contract, not from the
+ * file, so a file that disagrees misleads anyone who trusts it: a wrong
+ * decimal in particular scales every balance by a power of ten. A field the
+ * file leaves unset, or the contract does not store, is not compared.
+ */
+export function sep41MetadataDiagnostics(
+  currency: ContractCurrency,
+  metadata: Sep41Metadata,
+  rules?: RuleOverrides,
+): Diagnostic[] {
+  const { entry, id } = currency;
+  const base = `CURRENCIES[${currency.index}]`;
+  const diagnostics: Diagnostic[] = [];
+
+  const report = (
+    rule: string,
+    fallback: 'error' | 'warning',
+    field: string,
+    message: string,
+    suggestion: string,
+  ): void => {
+    const override = rules?.[rule];
+    if (override === 'off') return;
+    diagnostics.push({
+      rule,
+      severity: override ?? fallback,
+      category: 'network',
+      message,
+      path: `${base}.${field}`,
+      suggestion,
+    });
+  };
+
+  if (isString(entry.code) && metadata.symbol !== undefined && entry.code !== metadata.symbol) {
+    report(
+      SYMBOL_MISMATCH_RULE,
+      'error',
+      'code',
+      `${base}.code is "${entry.code}", but contract ${id} reports symbol "${metadata.symbol}"`,
+      `Set code to "${metadata.symbol}" to match the on-chain symbol, or point contract at the ${entry.code} token.`,
+    );
+  }
+
+  if (
+    isInteger(entry.display_decimals) &&
+    metadata.decimal !== undefined &&
+    entry.display_decimals !== metadata.decimal
+  ) {
+    report(
+      DECIMALS_MISMATCH_RULE,
+      'error',
+      'display_decimals',
+      `${base}.display_decimals is ${entry.display_decimals}, but contract ${id} reports decimal ${metadata.decimal}`,
+      `Set display_decimals to ${metadata.decimal}; wallets scale balances by the on-chain decimal.`,
+    );
+  }
+
+  if (
+    !metadata.stellarAsset &&
+    isString(entry.name) &&
+    metadata.name !== undefined &&
+    entry.name !== metadata.name
+  ) {
+    report(
+      NAME_MISMATCH_RULE,
+      'warning',
+      'name',
+      `${base}.name is "${entry.name}", but contract ${id} reports name "${metadata.name}"`,
+      `Set name to "${metadata.name}" so the file and the contract describe the token the same way.`,
+    );
+  }
+
+  return diagnostics;
+}
+
+/** Registered so `--list-rules` and `--off`/`--warn`/`--error` know these ids. */
+export const sep41MetadataRules: Rule[] = [
+  {
+    id: SYMBOL_MISMATCH_RULE,
+    category: 'network',
+    severity: 'error',
+    description: 'CURRENCIES code must match the SEP-41 symbol its contract reports',
+    run() {},
+  },
+  {
+    id: DECIMALS_MISMATCH_RULE,
+    category: 'network',
+    severity: 'error',
+    description: 'CURRENCIES display_decimals must match the SEP-41 decimal its contract reports',
+    run() {},
+  },
+  {
+    id: NAME_MISMATCH_RULE,
+    category: 'network',
+    severity: 'warning',
+    description: 'CURRENCIES name should match the SEP-41 name its contract reports',
+    run() {},
+  },
+];
+
+/**
+ * Verifies each collateral signature against its address and message, and
+ * reports the ones whose verdict is `wanted`. Lists that are not string lists
+ * are left to `currencies/collateral-consistency`; a length mismatch there
+ * still leaves the aligned prefix checkable, so that much is verified.
+ */
+function eachCollateralSignature(
+  ctx: RuleContext,
+  wanted: 'invalid' | 'malformed',
+  describe: (
+    path: string,
+    address: string,
+    messagePath: string,
+  ) => { rule: string; message: string; suggestion: string },
+): void {
+  eachCurrency(ctx, (entry, base) => {
+    const addresses = entry.collateral_addresses;
+    const messages = entry.collateral_address_messages;
+    const signatures = entry.collateral_address_signatures;
+    if (!isStringArray(addresses) || !isStringArray(messages) || !isStringArray(signatures)) {
+      return;
+    }
+
+    const count = Math.min(addresses.length, messages.length, signatures.length);
+    for (let i = 0; i < count; i++) {
+      const address = addresses[i] as string;
+      const verdict = verifyCollateralSignature(
+        address,
+        messages[i] as string,
+        signatures[i] as string,
+      );
+      if (verdict !== wanted) continue;
+
+      const field = `${base}.collateral_address_signatures`;
+      const { rule, message, suggestion } = describe(
+        `${field}[${i}]`,
+        address,
+        `${base}.collateral_address_messages[${i}]`,
+      );
+      ctx.report({
+        rule,
+        category: 'currencies',
+        message,
+        path: field,
+        position: ctx.locate(field),
+        helpUri: specUrl('currency-documentation'),
+        suggestion,
+      });
+    }
+  });
 }
 
 /** Rules covering the `[[CURRENCIES]]` list. */
@@ -704,6 +892,34 @@ export const currencyRules: Rule[] = [
           }
         }
       });
+    },
+  },
+  {
+    id: 'currencies/collateral-signature-malformed',
+    category: 'currencies',
+    severity: 'error',
+    description: 'Each collateral signature must decode to a signature of the right length',
+    run(ctx) {
+      eachCollateralSignature(ctx, 'malformed', (path, address) => ({
+        rule: 'currencies/collateral-signature-malformed',
+        message: `${path} cannot be decoded as a signature for ${address}`,
+        suggestion:
+          'Publish the raw signature base64-encoded (Ethereum signatures may also be 0x hex), 64 bytes for Stellar and 65 for Bitcoin or Ethereum.',
+      }));
+    },
+  },
+  {
+    id: 'currencies/collateral-signature-invalid',
+    category: 'currencies',
+    severity: 'error',
+    description: 'Each collateral signature must verify against its address and message',
+    run(ctx) {
+      eachCollateralSignature(ctx, 'invalid', (path, address, messagePath) => ({
+        rule: 'currencies/collateral-signature-invalid',
+        message: `${path} is not a valid signature of ${messagePath} by ${address}`,
+        suggestion:
+          'Re-sign the message with the collateral address key and publish the new signature in the same position.',
+      }));
     },
   },
 
