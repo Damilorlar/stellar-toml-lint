@@ -12,6 +12,8 @@
 export { lint, lintDomain } from './lint.js';
 export { lspMain } from './lsp.js';
 export { allRules, ruleIds } from './rules/index.js';
+export { PRESETS, PRESET_NAMES, resolvePreset } from './presets.js';
+export type { Preset, PresetName } from './presets.js';
 export {
   formatText,
   formatJson,
