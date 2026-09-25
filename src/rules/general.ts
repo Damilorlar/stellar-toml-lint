@@ -1,11 +1,5 @@
 import type { Rule } from '../types.js';
-import {
-  ACCOUNT_ID_FIELDS,
-  DEPRECATED_FIELDS,
-  HTTPS_ENDPOINT_FIELDS,
-  KNOWN_GLOBAL_FIELDS,
-  specUrl,
-} from '../spec.js';
+import { ACCOUNT_ID_FIELDS, HTTPS_ENDPOINT_FIELDS, KNOWN_GLOBAL_FIELDS, specUrl } from '../spec.js';
 import {
   KNOWN_PASSPHRASES,
   MAX_FILE_BYTES,
@@ -21,6 +15,19 @@ import { githubHandleRules } from './github-handle.js';
 import { trailingSlashRule } from './trailing-slash.js';
 import { uppercaseKeyRules } from './uppercase-keys.js';
 
+/**
+ * The `WEB_AUTH_CONTRACT_ID` when it is a valid C... id, with its file path,
+ * so network checks can verify the SEP-45 auth contract's TTL. Invalid ids
+ * are reported offline by `general/web-auth-contract-id` instead.
+ */
+export function webAuthContractIdOf(
+  doc: Record<string, unknown>,
+): { id: string; path: string } | undefined {
+  const value = doc.WEB_AUTH_CONTRACT_ID;
+  if (!isString(value) || !isContractId(value)) return undefined;
+  return { id: value, path: 'WEB_AUTH_CONTRACT_ID' };
+}
+
 /** Rules covering file-level constraints and the global (untabled) fields. */
 export const generalRules: Rule[] = [
   ...uppercaseKeyRules,
@@ -31,7 +38,10 @@ export const generalRules: Rule[] = [
     severity: 'error',
     description: 'stellar.toml must not exceed 100KB',
     run(ctx) {
-      const bytes = Buffer.byteLength(ctx.source, 'utf8');
+      const bytes =
+        typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(ctx.source, 'utf8')
+          : new TextEncoder().encode(ctx.source).length;
       if (bytes > MAX_FILE_BYTES) {
         ctx.report({
           rule: 'file/max-size',
@@ -139,6 +149,7 @@ export const generalRules: Rule[] = [
         suggestion: near
           ? `Replace it with exactly: ${normalized}`
           : 'Use the Public, Testnet, or Futurenet passphrase exactly as published.',
+        ...(near ? { fix: { value: normalized } } : {}),
       });
     },
   },
@@ -469,27 +480,6 @@ export const generalRules: Rule[] = [
         helpUri: specUrl('currency-documentation'),
         suggestion: 'List the assets the transfer server handles as [[CURRENCIES]] entries.',
       });
-    },
-  },
-
-  {
-    id: 'general/deprecated-field',
-    category: 'general',
-    severity: 'warning',
-    description: 'Flags fields SEP-1 marks as deprecated',
-    run(ctx) {
-      for (const [field, note] of Object.entries(DEPRECATED_FIELDS)) {
-        if (ctx.doc[field] === undefined) continue;
-        ctx.report({
-          rule: 'general/deprecated-field',
-          category: 'general',
-          message: `${field} is deprecated: ${note}`,
-          path: field,
-          position: ctx.locate(field),
-          helpUri: specUrl('general-information'),
-          suggestion: `Remove ${field} unless a legacy client still depends on it.`,
-        });
-      }
     },
   },
 
