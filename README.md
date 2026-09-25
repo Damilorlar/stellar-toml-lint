@@ -119,6 +119,8 @@ it was before.
 | `--max-warnings <n>`        | Fail if warnings exceed `n`                                                                                             |
 | `--check-network`           | Verify accounts, CORS pre-flight responses, `HORIZON_URL`, SEP-8 flags, `ANCHOR_QUOTE_SERVER`, and SEP-6 `/info` online |
 | `--verify-sep10`            | Verify SEP-10 nonce uniqueness and replay resistance (requires `--check-network`)                                       |
+| `--crawl-peers`             | Discover validator peers with overlay `GET_PEERS` messages (requires `--check-network`)                                 |
+| `--verify-dnssec`           | Compare A/AAAA answers across Cloudflare, Google, and Quad9 DoH resolvers (requires `--check-network`)                  |
 | `--follow-links`            | Fetch and lint the `toml` pointers in `CURRENCIES` (implied by `--domain`)                                              |
 | `--check-contracts`         | Verify Soroban contract/WASM TTL and the SEP-45 auth interface online                                                   |
 | `--soroban-rpc <url>`       | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`)                                       |
@@ -746,6 +748,33 @@ wallet that cannot negotiate exchange rates fails the run instead of at transfer
 `/quote` route is probed too: a 5xx emits `sep38/quote-endpoint-error`, and a 200 that is not a JSON
 object emits `sep38/malformed-quote-response`, while the 400/401/404 a bare unauthenticated GET
 legitimately earns stays silent.
+
+**History publish validation** (with `--check-network`) — each validator `HISTORY` archive is
+checked for the three most recent checkpoints. The audit verifies that `ledger-*.xdr.gz`,
+`transactions-*.xdr.gz`, and `results-*.xdr.gz` are present and non-empty, and compares
+previous-ledger pointers when checkpoint metadata provides them. A missing category emits
+`history/missing-category-archive` (error); an inconsistent hash or pointer emits
+`history/broken-checkpoint-chain` (error). The check uses the injected network transport, so
+`--mock-fixtures` remains hermetic.
+
+**Overlay peer discovery** (with `--check-network --crawl-peers`) — each `VALIDATORS[i].HOST`
+is contacted over TCP and sent a Stellar overlay `GET_PEERS` XDR message. Returned `PEERS`
+records are decoded, deduplicated, and crawled recursively with bounded depth and timeouts. A
+node with no peers emits `overlay/isolated-node-zero-peers` (error); a node with one to five
+peers emits `overlay/low-peer-count` (warning). The raw TCP transport is skipped in
+`--mock-fixtures` mode, which remains a no-network mode.
+
+**Overlay cryptography** (used by the peer and session audits) — the auditor validates RFC 5869
+HKDF derivation, big-endian 4-byte message length framing, monotonic sequence numbers, and
+HMAC authentication tags. A malformed frame or replayed sequence emits
+`overlay/invalid-crypto-framing` (error); a failed MAC emits
+`overlay/mac-authentication-failure` (error).
+
+**DNS integrity** (with `--check-network --verify-dnssec`) — A and AAAA answers are queried from
+Cloudflare (`1.1.1.1`), Google (`8.8.8.8`), and Quad9 (`9.9.9.9`) through their DNS-over-HTTPS
+endpoints. Resolver sets are normalized and compared; disagreement emits
+`security/dns-resolver-divergence` (error), while an explicit unauthenticated response emits
+`security/dnssec-not-enabled` (warning).
 
 The same flag sends browser-shaped `OPTIONS` requests to each declared `WEB_AUTH_ENDPOINT`,
 `TRANSFER_SERVER`, `KYC_SERVER`, and `ANCHOR_QUOTE_SERVER`. The response must allow the requesting

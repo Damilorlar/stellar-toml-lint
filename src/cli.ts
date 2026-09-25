@@ -35,6 +35,9 @@ import { checkContracts } from './soroban.js';
 import { checkSep6 } from './cross-sep/sep6.js';
 import { checkSep10Replay } from './protocols/sep10-replay.js';
 import { checkCollateralGovernance } from './security/collateral-governance.js';
+import { checkHistoryPublish } from './history/publish-validator.js';
+import { checkDnsIntegrity } from './security/dns-integrity.js';
+import { checkOverlayPeers } from './overlay/crawler.js';
 import { allRules } from './rules/index.js';
 import { PRESETS, resolvePreset, type PresetName } from './presets.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
@@ -77,6 +80,8 @@ interface Cli {
   checkNetwork: boolean;
   followLinks: boolean;
   verifySep10: boolean;
+  crawlPeers: boolean;
+  verifyDnssec: boolean;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -131,6 +136,8 @@ OPTIONS
                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
                           against the network
       --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
+      --crawl-peers       Discover overlay peers with GET_PEERS and check connectivity
+      --verify-dnssec     Compare A/AAAA answers across DNSSEC-validating DoH resolvers
       --follow-links      Fetch and lint the toml pointers in CURRENCIES
                           (implied by --domain)
       --check-contracts   Verify Soroban contract and WASM TTL liveliness
@@ -249,21 +256,39 @@ async function main(argv: string[]): Promise<number> {
         const config = await loadConfig(process.cwd());
         strict = strict || config.strict;
         maxWarnings ??= config.maxWarnings;
-        results.push({
-          name: cli.domain,
-          result: await lintDomain(
-            cli.domain,
-            {
-              strict,
-              rules: { ...config.rules, ...cli.rules },
-              checkNetwork: cli.checkNetwork,
-              // --domain already fetched the file from a live host, so its
-              // currency pointers are in scope without a second opt-in.
-              followLinks: true,
-            },
-            fetchImpl,
-          ),
-        });
+        const rules = { ...config.rules, ...cli.rules };
+        let domainResult = await lintDomain(
+          cli.domain,
+          {
+            strict,
+            rules,
+            checkNetwork: cli.checkNetwork,
+            followLinks: true,
+          },
+          fetchImpl,
+        );
+        if (domainResult.parsed && cli.checkNetwork) {
+          const networkDiagnostics: Diagnostic[] = [
+            ...(await checkHistoryPublish(domainResult.parsed, fetchImpl, { rules })),
+            ...(cli.verifyDnssec
+              ? await checkDnsIntegrity(domainResult.parsed, fetchImpl, {
+                  rules,
+                  domain: cli.domain,
+                })
+              : []),
+            ...(cli.crawlPeers && cli.mockFixtures === undefined
+              ? await checkOverlayPeers(domainResult.parsed, { rules })
+              : []),
+          ];
+          if (networkDiagnostics.length > 0) {
+            domainResult = finalize(
+              [...domainResult.diagnostics, ...networkDiagnostics],
+              { strict },
+              domainResult.parsed,
+            );
+          }
+        }
+        results.push({ name: cli.domain, result: domainResult });
       } else {
         const paths = await expandInputs(cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH]);
         for (const path of paths) {
@@ -292,7 +317,7 @@ async function main(argv: string[]): Promise<number> {
             // explicit opt-in for a local file.
             if (cli.checkNetwork || cli.domain !== undefined) {
               networkDiagnostics.push(
-                ...(await checkSep6(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkSep6(fileResult.parsed, fetchImpl, { rules })),
               );
             }
 
@@ -306,30 +331,40 @@ async function main(argv: string[]): Promise<number> {
                     : '';
                 networkDiagnostics.push(
                   ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
-                    rules: cli.rules,
-                    fetchImpl: fetch,
+                    rules,
+                    fetchImpl,
                   })),
                 );
               }
             }
             if (cli.checkNetwork) {
               networkDiagnostics.push(
-                ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules })),
                 ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
-                ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
-                ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkSep38(fileResult.parsed, fetchImpl, { rules })),
                 ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
-                  rules: cli.rules,
+                  rules,
                 })),
-                ...(await checkCorsPreflight(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkCorsPreflight(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkHistoryPublish(fileResult.parsed, fetchImpl, { rules })),
+                ...(cli.verifyDnssec
+                  ? await checkDnsIntegrity(fileResult.parsed, fetchImpl, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                    })
+                  : []),
+                ...(cli.crawlPeers && cli.mockFixtures === undefined
+                  ? await checkOverlayPeers(fileResult.parsed, { rules })
+                  : []),
               );
             }
 
             if (cli.checkNetwork) {
               networkDiagnostics.push(
                 ...(await checkCollateralGovernance(fileResult.parsed, {
-                  rules: cli.rules,
-                  fetchImpl: fetch,
+                  rules,
+                  fetchImpl,
                 })),
               );
             }
@@ -347,7 +382,7 @@ async function main(argv: string[]): Promise<number> {
             if (cli.checkContracts) {
               networkDiagnostics.push(
                 ...(await checkContracts(fileResult.parsed, fetchImpl, {
-                  rules: cli.rules,
+                  rules,
                   ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
                 })),
               );
@@ -618,6 +653,8 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     checkNetwork: false,
     followLinks: false,
     verifySep10: false,
+    crawlPeers: false,
+    verifyDnssec: false,
     checkContracts: false,
     graphIncludeContracts: false,
     graphIncludeValidators: false,
@@ -704,6 +741,14 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--verify-sep10':
         cli.verifySep10 = true;
+        break;
+
+      case '--crawl-peers':
+        cli.crawlPeers = true;
+        break;
+
+      case '--verify-dnssec':
+        cli.verifyDnssec = true;
         break;
 
       case '--follow-links':

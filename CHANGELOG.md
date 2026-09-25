@@ -89,6 +89,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `validators/stellar-history-json-unreachable` (error) under `--check-network` fetches each
   validator's archive root and requires it to serve `.well-known/stellar-history.json` with
   `"version": 1` (#144).
+- Overlay and archive integrity audits: `--crawl-peers` decodes bounded `GET_PEERS` discovery
+  responses, `--verify-dnssec` compares DNSSEC-validating DoH resolvers, and `--check-network`
+  validates the three most recent history checkpoints for complete category archives and chained
+  previous-ledger pointers (#90, #91, #92, #96).
+- `overlay/invalid-crypto-framing` and `overlay/mac-authentication-failure` audit big-endian frame
+  lengths, HKDF-derived session keys, sequence replay, and authenticated tags (#91).
 
 - Opt-in `--check-network` flag to query Horizon and report non-existent `SIGNING_KEY` or `ACCOUNTS` entries as warnings (#7).
 - `network/horizon-unreachable` and `network/horizon-protocol-outdated` under `--check-network`:
