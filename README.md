@@ -612,7 +612,6 @@ interface Diagnostic {
 
 Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 
-
 **File and general fields** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM
 detection, `https://` on every endpoint field, and trailing-slash detection on service endpoints;
 checksum-valid `SIGNING_KEY`, `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`;
@@ -621,7 +620,6 @@ Deprecated configuration emits actionable `general/deprecated-field` warnings fo
 legacy `DEPOSIT_SERVER`, unencrypted `FEDERATION_SERVER`, and documentation keys placed at the
 top level instead of under `[DOCUMENTATION]`. Under `--check-network`, validates that the domain
 portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
-
 
 **File** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM detection.
 `https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
@@ -636,7 +634,6 @@ portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
 `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields; empty string values in documentation fields; and uppercase-only Stellar public keys
 (`SIGNING_KEY`, `[[CURRENCIES]].issuer`, `[[VALIDATORS]].PUBLIC_KEY`) — lowercase base32 letters are
 flagged with the corrected uppercase form, since wallets compare the string when matching accounts.
-
 
 **Cross-field dependencies** — `DIRECT_PAYMENT_SERVER` (SEP-31) requires `KYC_SERVER` (SEP-12);
 `WEB_AUTH_ENDPOINT` (SEP-10) requires `SIGNING_KEY`; SEP-45 needs both its endpoint and contract ID;

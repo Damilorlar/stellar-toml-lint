@@ -289,6 +289,14 @@ export const FIELD_DOCS: readonly FieldDoc[] = [
   },
   {
     section: '',
+    name: 'DEPOSIT_SERVER',
+    type: 'url (`https://`)',
+    description:
+      '(deprecated) The legacy SEP-6 deposit server field; use TRANSFER_SERVER for SEP-6 or TRANSFER_SERVER_SEP0024 for SEP-24.',
+    anchor: 'general-information',
+  },
+  {
+    section: '',
     name: 'TRANSFER_SERVER',
     type: 'url (`https://`)',
     description: 'The server used for SEP-6 Anchor/Client interoperability.',

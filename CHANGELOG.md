@@ -55,7 +55,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 (2 errors, 3 warnings)` — appended by the text reporter only, with the exit code still `1` if any
   file failed and `0` if they all passed (#18).
 
-
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).

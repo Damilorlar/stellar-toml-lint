@@ -17,7 +17,6 @@ import { sep12Rules } from './sep12-schema.js';
 import { sep6Rules } from '../cross-sep/sep6.js';
 import { corsPreflightRules } from '../network/cors-preflight.js';
 
-
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
   ...generalRules,
