@@ -110,6 +110,7 @@ The exit code is `1` when any file fails and `0` when they all pass. The summary
 it was before.
 
 ### Options
+
 | Flag                 | Effect                                                                          |
 | -------------------- | ------------------------------------------------------------------------------- |
 | `-d, --domain <d>`   | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks           |
@@ -147,6 +148,7 @@ it was before.
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                 |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
+
 | Flag                        | Effect                                                                                                                  |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `-d, --domain <d>`          | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks                                                   |
@@ -222,7 +224,6 @@ Every flag above takes precedence over the [configuration file](#configuration-f
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage, an unmatched glob, or I/O
 failure.
-
 
 Colour output follows the [NO_COLOR standard](https://no-color.org): setting `NO_COLOR` to any
 non-empty value disables it, an empty value counts as unset, and stdout not being a terminal
@@ -786,7 +787,6 @@ Required field keys that are not standard [SEP-9][sep9] names (`first_name`, `la
 `email_address`, `id_country_code`, …) emit `sep12/unknown-kyc-field-name` (warning), and a customer
 type whose name is not a lowercase identifier emits `sep12/invalid-customer-type-syntax` (error).
 Nothing here fires for a local file without the flag: offline linting never opens a connection.
-
 
 ### Severity
 
