@@ -55,6 +55,8 @@ import { createFixtureFetch } from './mock-fixtures.js';
 import { runLspServer } from './lsp/server.js';
 import { getTomlJsonSchema } from './schema.js';
 import { generateCompletion, isCompletionShell } from './completion.js';
+import { MonitorDaemon } from './monitor/daemon.js';
+import { migrate as migrateFn, runMigration, dryRun as dryRunMigration, type MigrationTarget } from './codemod/migrate.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
@@ -98,6 +100,11 @@ interface Cli {
   policy?: string;
   mockFixtures?: string;
   lsp?: boolean;
+  monitor?: boolean;
+  interval?: number;
+  webhookUrl?: string;
+  migrate?: string;
+  dryRun?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -160,15 +167,22 @@ OPTIONS
       --graph-validators  Include validators in diagram
       --graph-color       Color nodes by protocol type
       --policy <file>     Evaluate enterprise policy file (JSON or YAML)
-      --json-schema       Print a JSON Schema (Draft 2020-12) for stellar.toml
-                          to stdout, for editor autocompletion via schema
-                          associations
-      --color / --no-color
-      --list-rules        Print every rule and exit
-      --completion <sh>   Print a shell completion script for bash, zsh, or fish
-                          (e.g. eval "$(stellar-toml-lint --completion zsh)")
-  -v, --version
-  -h, --help
+       --json-schema       Print a JSON Schema (Draft 2020-12) for stellar.toml
+                           to stdout, for editor autocompletion via schema
+                           associations
+        --color / --no-color
+        --list-rules        Print every rule and exit
+        --completion <sh>   Print a shell completion script for bash, zsh, or fish
+                            (e.g. eval "$(stellar-toml-lint --completion zsh)")
+    -v, --version
+    -h, --help
+        --migrate <target>  Run a code migration: sep41 or v2
+        --dry-run           Show migration diff without writing files
+       --monitor           Start a polling daemon that watches a URL for changes
+       --interval <ms>     Polling interval in milliseconds (default 300)
+       --on-change-webhook <url>
+                           POST a JSON diff payload to a webhook when the
+                           monitored URL changes
 
 CONFIG
   .stellartomlrc.json    Project defaults, discovered upward from the linted
@@ -245,12 +259,10 @@ async function main(argv: string[]): Promise<number> {
     // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
     let strict = cli.strict;
     let maxWarnings = cli.maxWarnings;
+    const fetchImpl =
+      cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
 
     try {
-      // Fixture mode replaces the transport for every network-bound check, so a
-      // hermetic run can never reach the internet by accident.
-      const fetchImpl =
-        cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
 
       if (cli.domain && cli.paths.length === 0) {
         const config = await loadConfig(process.cwd());
@@ -408,6 +420,29 @@ async function main(argv: string[]): Promise<number> {
       return 2;
     }
 
+    // Code migration: run before reporting
+    if (cli.migrate) {
+      const target = cli.migrate as MigrationTarget;
+      const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+      for (const path of paths) {
+        const filePath = path === '-' ? DEFAULT_PATH : path;
+        try {
+          const source = await readFile(filePath, 'utf8');
+          const { diagnostics: migrationDiagnostics, result: migrationResult } = await runMigration(source, target, fetchImpl);
+          if (!cli.dryRun && migrationResult.applied) {
+            await writeFile(filePath, migrationResult.source);
+          }
+          const diffOutput = await dryRunMigration(source, target, fetchImpl);
+          process.stdout.write(diffOutput);
+          for (const diag of migrationDiagnostics) {
+            process.stderr.write(`${diag.rule}: ${diag.message}\n`);
+          }
+        } catch (error) {
+          process.stderr.write(`Migration failed for ${filePath}: ${(error as Error).message}\n`);
+        }
+      }
+    }
+
     const firstResult = results[0]?.result;
 
     if (cli.badgeSvg && firstResult) {
@@ -557,6 +592,20 @@ async function main(argv: string[]): Promise<number> {
   };
 
   const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+  if (cli.monitor) {
+    const daemon = new MonitorDaemon({
+      url: cli.domain !== undefined ? `https://${cli.domain}/.well-known/stellar.toml` : paths[0]!,
+      interval: cli.interval,
+      webhookUrl: cli.webhookUrl,
+    });
+    await daemon.start();
+    return new Promise<number>(() => {
+      process.on('SIGINT', () => {
+        daemon.stop();
+        process.exit(0);
+      });
+    });
+  }
   if (cli.watch) {
     return watchFiles(cli.domain ? [] : paths, cli, color, runLint);
   }
@@ -858,8 +907,41 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.color = true;
         break;
 
-      case '--no-color':
+       case '--no-color':
         cli.color = false;
+        break;
+
+      case '--monitor':
+        cli.monitor = true;
+        break;
+
+      case '--interval': {
+        const value = Number(requireValue(argv, ++i, arg));
+        if (!Number.isInteger(value) || value < 1) {
+          throw new Error('--interval expects a positive integer.');
+        }
+        cli.interval = value;
+        break;
+      }
+
+      case '--on-change-webhook':
+        cli.webhookUrl = requireValue(argv, ++i, arg);
+        if (!isSupportedWebhookUrl(cli.webhookUrl)) {
+          throw new Error('--on-change-webhook expects an http or https URL.');
+        }
+        break;
+
+      case '--migrate': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'sep41' && value !== 'v2') {
+          throw new Error(`Unknown migration target "${value}". Expected sep41 or v2.`);
+        }
+        cli.migrate = value;
+        break;
+      }
+
+      case '--dry-run':
+        cli.dryRun = true;
         break;
 
       default:

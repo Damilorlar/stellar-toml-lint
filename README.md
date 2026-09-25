@@ -151,6 +151,9 @@ it was before.
 | `--badge-svg <file>`        | Generate an SVG compliance badge                                                                                        |
 | `--badge-json <file>`       | Generate a Shields.io JSON endpoint                                                                                     |
 | `--json-schema`             | Print a JSON Schema (Draft 2020-12) for stellar.toml to stdout                                                          |
+| `--monitor`                | Start a polling daemon that watches a URL for changes                                                                   |
+| `--interval <ms>`          | Polling interval in milliseconds (default 300)                                                                          |
+| `--on-change-webhook <url>`| POST a JSON diff payload to a webhook when the monitored URL changes                                                  |
 
 Every flag above takes precedence over the [configuration file](#configuration-file), and
 `--preset` — being a flag — takes precedence over it too.
@@ -306,6 +309,65 @@ request is capped at 5 s. A 4xx is not retried, because a rejected payload will 
 exit code always follows the diagnostics and never the webhook: when delivery fails the problem is
 reported on stderr and the verdict is unchanged, so a broken alert endpoint cannot turn a clean file
 into a failing build.
+
+### Live Monitor Daemon
+
+```console
+$ stellar-toml-lint --domain example.com --monitor --interval 500 --on-change-webhook "$WEBHOOK_URL"
+```
+
+The `--monitor` flag starts a polling daemon that fetches the target URL at the specified
+interval (default 300 ms). Each response is hashed with SHA-256 and compared against the previous
+response. When a change is detected, a JSON diff payload is POSTed to the `--on-change-webhook`
+endpoint containing:
+
+```json
+{
+  "timestamp": "2026-09-25T12:00:00.000Z",
+  "url": "https://example.com/.well-known/stellar.toml",
+  "added_fields": ["CURRENCIES[0].description"],
+  "modified_fields": ["VERSION"],
+  "deleted_fields": []
+}
+```
+
+The daemon uses exponential backoff on transient network failures, capping at 30 seconds.
+Pass `--interval <ms>` to control the polling frequency. Send `SIGINT` to stop the daemon.
+
+### Code Migration Engine
+
+`stellar-toml-lint` includes an AST-based code migration and deprecation autofix engine that rewrites legacy `stellar.toml` declarations to modern replacements.
+
+#### `--migrate sep41`
+
+Migrates legacy federation server declarations to the modern SEP-41 format:
+- Converts `FEDERATION_SERVER` to `WEB_AUTH_CONTRACT_ID`
+- Adds `AUTH_SERVER` if missing
+- Queries Horizon to resolve missing contract attributes
+
+```bash
+stellar-toml-lint --migrate sep41 stellar.toml
+```
+
+#### `--migrate v2`
+
+Migrates classic asset declarations to Soroban SAC contract IDs:
+- Converts classic asset declarations with `issuer` to `contract` fields
+- Queries Horizon to resolve asset attributes during migration
+
+```bash
+stellar-toml-lint --migrate v2 stellar.toml
+```
+
+#### `--dry-run`
+
+Shows the migration diff preview without writing any files:
+
+```bash
+stellar-toml-lint --migrate sep41 --dry-run stellar.toml
+```
+
+Both `--migrate` and `--dry-run` can be combined with any existing flags. When `--migrate` is set, the linter runs the migration first, shows the unified diff, and optionally writes the migrated source back to disk (unless `--dry-run` is specified). Diagnostics are emitted as `codemod/migration-conflict` (error) and `codemod/migration-applied` (info).
 
 ## In the browser
 
@@ -1015,6 +1077,38 @@ The flake provides:
 
 Supported platforms: `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`.
 
+## Playground
+
+The **Stellar TOML Lint Playground** is an interactive web-based IDE built with Monaco Editor, providing a full-featured environment for validating `stellar.toml` files directly in the browser.
+
+### Features
+
+- **Monaco Editor** with Web Worker integration — write and lint `stellar.toml` with real-time diagnostics running in a background thread using the browser WASM bundle (`stellar-toml-lint/browser`)
+- **Split-screen layout** — editor on the left, preview panels on the right
+- **Diagnostics tab** — live error/warning table with severity badges and click-to-navigate line support
+- **Quorum Visualizer** — interactive DAG rendered with Cytoscape.js showing validator quorum sets, thresholds, and quorum slices
+- **Live Network Probe** — test CORS, TLS, and Horizon state with real-time results
+- **Fix Actions** — one-click "Apply Autofix" button with a preview of suggested corrections
+
+### Getting Started
+
+```bash
+npm run playground
+```
+
+The playground is available at `http://localhost:5173`.
+
+### Architecture
+
+The playground is a standalone Vite + React + TypeScript application located in `apps/playground/`:
+
+- `src/components/Editor.tsx` — Monaco Editor with Web Worker linter integration
+- `src/workers/linter.worker.ts` — Web Worker that runs `stellar-toml-lint` via the browser bundle
+- `src/components/Diagnostics.tsx` — Live diagnostics table with severity filtering
+- `src/components/QuorumVisualizer.tsx` — Interactive quorum DAG visualizer using Cytoscape.js
+- `src/components/LiveNetworkProbe.tsx` — Network connectivity tester
+- `src/components/FixActions.tsx` — Automated fix suggestions and application
+
 ## Contributing
 
 New contributors are genuinely welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Issues labelled
@@ -1046,6 +1140,12 @@ See [integrations/github-app/](integrations/github-app/) for details.
 Official Sublime Text LSP helper package providing diagnostics, completions, and hover documentation.
 
 See [integrations/sublime/](integrations/sublime/) for details.
+
+### Neovim LSP Package
+
+Official Neovim LSP integration providing real-time SEP-1 linting diagnostics, code actions, hover documentation, and Tree-sitter syntax highlighting for `stellar.toml` files. Supports lazy.nvim, packer.nvim, and manual installation.
+
+See [integrations/neovim/](integrations/neovim/) for details.
 
 ### Performance Benchmarks
 
