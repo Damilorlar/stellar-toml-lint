@@ -13,12 +13,10 @@ import { horizonRules } from './horizon-check.js';
 import { sep3Rules } from './sep3-auth.js';
 import { sep38Rules } from './sep38-endpoints.js';
 import { orgUrlRules } from './org-url-check.js';
-import { sep38Rules } from './sep38-endpoints.js';
 import { sorobanRules } from '../soroban.js';
 import { sep12Rules } from './sep12-schema.js';
 import { sep6Rules } from '../cross-sep/sep6.js';
 import { corsPreflightRules } from '../network/cors-preflight.js';
-
 
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
@@ -38,7 +36,6 @@ export const allRules: Rule[] = [
   ...sep3Rules,
   ...sep38Rules,
   ...orgUrlRules,
-  ...sep38Rules,
   ...sorobanRules,
   ...sep12Rules,
   ...sep6Rules,

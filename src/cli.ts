@@ -205,20 +205,6 @@ async function main(argv: string[]): Promise<number> {
       await runLspServer();
       return 0;
     }
-        if (cli.checkNetwork && fileResult.parsed) {
-          const networkDiagnostics = [
-            ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkNetworkAccounts(fileResult.parsed)),
-            ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkSep3Auth(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
-          ];
-          if (networkDiagnostics.length > 0) {
-            fileResult = finalize(
-              [...fileResult.diagnostics, ...networkDiagnostics],
-              { strict: cli.strict },
-              fileResult.parsed,
-            );
 
     const results: { name: string; result: LintResult }[] = [];
     // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
@@ -300,6 +286,7 @@ async function main(argv: string[]): Promise<number> {
                 ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules: cli.rules })),
                 ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
                 ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkSep3Auth(fileResult.parsed, fetchImpl, { rules: cli.rules })),
                 ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
                 ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
                   rules: cli.rules,
