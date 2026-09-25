@@ -336,7 +336,8 @@ and `ORG_GITHUB` as a valid GitHub username or `https://github.com/<username>` p
 
 **`[[PRINCIPALS]]`** — name and email present and well-formed; hex photo hashes of plausible length.
 
-**`[[CURRENCIES]]`** — code length and charset; exactly one of `issuer` or `contract`, both checksum
+**`[[CURRENCIES]]`** — code length and charset, with separate errors for codes over 12 characters
+and non-alphanumeric codes; exactly one of `issuer` or `contract`, both checksum
 validated; the native XLM asset handled as the special case it is; exactly one issuance policy;
 `status` and `anchor_asset_type` enums; `display_decimals` in 0–7; asset-anchored currencies
 requiring a valid `anchor_asset_type` and warning when `anchor_asset` is absent; anchored fiat
