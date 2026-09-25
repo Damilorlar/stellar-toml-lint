@@ -14,6 +14,7 @@ import { checkNetworkAccounts } from './network-checks.js';
 import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
+import { checkSep3Auth } from './rules/sep3-auth.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
 import { allRules } from './rules/index.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
@@ -75,8 +76,8 @@ OPTIONS
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, and
-                          ANCHOR_QUOTE_SERVER against the network
+      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL,
+                          AUTH_SERVER, and ANCHOR_QUOTE_SERVER against the network
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -140,6 +141,7 @@ async function main(argv: string[]): Promise<number> {
             ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
             ...(await checkNetworkAccounts(fileResult.parsed)),
             ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
+            ...(await checkSep3Auth(fileResult.parsed, fetch, { rules: cli.rules })),
             ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
           ];
           if (networkDiagnostics.length > 0) {

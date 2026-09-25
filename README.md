@@ -74,42 +74,42 @@ cat stellar.toml | stellar-toml-lint -
 ```
 
 ### Options
-| Flag                 | Effect                                                                |
-| -------------------- | --------------------------------------------------------------------- |
-| `-d, --domain <d>`   | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks |
-| `-f, --format <fmt>` | `text` (default), `json`, `sarif`, `github`, `junit`                  |
-| `--strict`           | Treat warnings as errors                                              |
-| `--max-warnings <n>` | Fail if warnings exceed `n`                                           |
-| `--check-network`    | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
-| `--off <rule>`       | Disable a rule (repeatable)                                           |
-| `--error <rule>`     | Raise a rule to error (repeatable)                                    |
-| `--warn <rule>`      | Lower a rule to warning (repeatable)                                  |
-| `-q, --quiet`        | Show errors only                                                      |
-| `--show-help-urls`   | Print the spec link for each finding                                  |
-| `--list-rules`       | Print every rule and exit                                             |
-| `--no-suggestions`   | Hide diagnostic suggestions in the output                             |
-| `--check-network`    | Validate `ORG_OFFICIAL_EMAIL` domain MX records for email deliverability |
 
-| Flag                      | Effect                                                                |
-| ------------------------- | --------------------------------------------------------------------- |
-| `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks |
-| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`                  |
-| `--strict`                | Treat warnings as errors                                              |
-| `--max-warnings <n>`      | Fail if warnings exceed `n`                                           |
-| `--check-network`         | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
-| `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                      |
-| `--webhook-discord <url>` | POST a Discord embed with the run summary                             |
-| `--off <rule>`            | Disable a rule (repeatable)                                           |
-| `--error <rule>`          | Raise a rule to error (repeatable)                                    |
-| `--warn <rule>`           | Lower a rule to warning (repeatable)                                  |
-| `-q, --quiet`             | Show errors only                                                      |
-| `--show-help-urls`        | Print the spec link for each finding                                  |
-| `--list-rules`            | Print every rule and exit                                             |
-| `--no-suggestions`        | Hide diagnostic suggestions in the output                             |
-| `--color`                 | Force colour on, overriding `NO_COLOR`                                |
-| `--no-color`              | Force colour off                                                      |
-| `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)       |
+| Flag                 | Effect                                                                          |
+| -------------------- | ------------------------------------------------------------------------------- |
+| `-d, --domain <d>`   | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks           |
+| `-f, --format <fmt>` | `text` (default), `json`, `sarif`, `github`, `junit`                            |
+| `--strict`           | Treat warnings as errors                                                        |
+| `--max-warnings <n>` | Fail if warnings exceed `n`                                                     |
+| `--check-network`    | Verify accounts, `HORIZON_URL`, `AUTH_SERVER`, and `ANCHOR_QUOTE_SERVER` online |
+| `--off <rule>`       | Disable a rule (repeatable)                                                     |
+| `--error <rule>`     | Raise a rule to error (repeatable)                                              |
+| `--warn <rule>`      | Lower a rule to warning (repeatable)                                            |
+| `-q, --quiet`        | Show errors only                                                                |
+| `--show-help-urls`   | Print the spec link for each finding                                            |
+| `--list-rules`       | Print every rule and exit                                                       |
+| `--no-suggestions`   | Hide diagnostic suggestions in the output                                       |
+| `--check-network`    | Validate `ORG_OFFICIAL_EMAIL` domain MX records for email deliverability        |
 
+| Flag                      | Effect                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks           |
+| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`                            |
+| `--strict`                | Treat warnings as errors                                                        |
+| `--max-warnings <n>`      | Fail if warnings exceed `n`                                                     |
+| `--check-network`         | Verify accounts, `HORIZON_URL`, `AUTH_SERVER`, and `ANCHOR_QUOTE_SERVER` online |
+| `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                |
+| `--webhook-discord <url>` | POST a Discord embed with the run summary                                       |
+| `--off <rule>`            | Disable a rule (repeatable)                                                     |
+| `--error <rule>`          | Raise a rule to error (repeatable)                                              |
+| `--warn <rule>`           | Lower a rule to warning (repeatable)                                            |
+| `-q, --quiet`             | Show errors only                                                                |
+| `--show-help-urls`        | Print the spec link for each finding                                            |
+| `--list-rules`            | Print every rule and exit                                                       |
+| `--no-suggestions`        | Hide diagnostic suggestions in the output                                       |
+| `--color`                 | Force colour on, overriding `NO_COLOR`                                          |
+| `--no-color`              | Force colour off                                                                |
+| `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                 |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
@@ -309,10 +309,10 @@ interface Diagnostic {
 Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 
 **File** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM detection.
- `https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
- `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields;
- and empty string values in documentation fields. Under `--check-network`, validates that the domain
- portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
+`https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
+`URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields;
+and empty string values in documentation fields. Under `--check-network`, validates that the domain
+portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
 
 `https://` on every endpoint field; no trailing slashes on service endpoints
 (`WEB_AUTH_ENDPOINT`, `TRANSFER_SERVER`, `TRANSFER_SERVER_SEP0024`, `KYC_SERVER`,
@@ -321,7 +321,6 @@ Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields; empty string values in documentation fields; and uppercase-only Stellar public keys
 (`SIGNING_KEY`, `[[CURRENCIES]].issuer`, `[[VALIDATORS]].PUBLIC_KEY`) — lowercase base32 letters are
 flagged with the corrected uppercase form, since wallets compare the string when matching accounts.
-
 
 **Cross-field dependencies** — `DIRECT_PAYMENT_SERVER` (SEP-31) requires `KYC_SERVER` (SEP-12);
 `WEB_AUTH_ENDPOINT` (SEP-10) requires `SIGNING_KEY`; SEP-45 needs both its endpoint and contract ID;
@@ -374,6 +373,14 @@ wallet that cannot negotiate exchange rates fails the run instead of at transfer
 `/quote` route is probed too: a 5xx emits `sep38/quote-endpoint-error`, and a 200 that is not a JSON
 object emits `sep38/malformed-quote-response`, while the 400/401/404 a bare unauthenticated GET
 legitimately earns stays silent.
+
+When `AUTH_SERVER` is declared, the same opt-in check sends a form-encoded SEP-3 POST handshake with
+an `Origin` header. HTTPS is required, and the response must use one of SEP-3's documented status
+codes (200, 202, 400, 403, or 500) and include an `Access-Control-Allow-Origin` value accepted by
+browser clients. A connection, TLS, timeout, or invalid-status failure emits
+`sep3/auth-server-unreachable`; a missing or unusable CORS header emits
+`sep3/missing-cors-headers`. This is an endpoint liveness and transport check, not a full signature
+verification.
 
 ### Severity
 
