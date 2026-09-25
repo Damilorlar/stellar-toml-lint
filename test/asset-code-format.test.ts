@@ -26,6 +26,7 @@ describe('Stellar asset code format', () => {
       severity: 'error',
       path: 'CURRENCIES[0].code',
     });
+    expect(diagnostic?.message).toContain('USDT_V2');
   });
 
   it('rejects codes longer than 12 characters', () => {

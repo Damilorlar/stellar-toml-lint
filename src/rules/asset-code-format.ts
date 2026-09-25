@@ -85,7 +85,7 @@ export const assetCodeFormatRules: Rule[] = [
           ctx,
           INVALID_FORMAT_RULE,
           `${path}.code`,
-          `${path}.code contains characters that are not valid in a Stellar asset code`,
+          `${path}.code "${code}" contains characters that are not valid in a Stellar asset code`,
           'Use 1 to 12 alphanumeric ASCII characters for the asset code.',
         );
       });
