@@ -1,5 +1,15 @@
 import { useState, useCallback } from 'react';
-import { Button, Box, Typography, Paper, Table, TableBody, TableCell, TableRow, LinearProgress } from '@mui/material';
+import {
+  Button,
+  Box,
+  Typography,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+  LinearProgress,
+} from '@mui/material';
 
 interface ProbeResult {
   name: string;
@@ -25,7 +35,12 @@ export default function LiveNetworkProbe() {
       setResults((prev) =>
         prev.map((r) =>
           r.name === name
-            ? { name, status: response.ok ? 'success' : 'error', message: `HTTP ${response.status}`, latency }
+            ? {
+                name,
+                status: response.ok ? 'success' : 'error',
+                message: `HTTP ${response.status}`,
+                latency,
+              }
             : r,
         ),
       );
@@ -33,9 +48,7 @@ export default function LiveNetworkProbe() {
       const latency = Date.now() - start;
       setResults((prev) =>
         prev.map((r) =>
-          r.name === name
-            ? { name, status: 'error', message: 'Connection failed', latency }
-            : r,
+          r.name === name ? { name, status: 'error', message: 'Connection failed', latency } : r,
         ),
       );
     }
@@ -83,12 +96,22 @@ export default function LiveNetworkProbe() {
                 <TableRow key={index}>
                   <TableCell className="text-gray-300">{result.name}</TableCell>
                   <TableCell>
-                    <span className={result.status === 'success' ? 'text-green-400' : result.status === 'error' ? 'text-red-400' : 'text-yellow-400'}>
+                    <span
+                      className={
+                        result.status === 'success'
+                          ? 'text-green-400'
+                          : result.status === 'error'
+                            ? 'text-red-400'
+                            : 'text-yellow-400'
+                      }
+                    >
                       {result.status === 'success' ? '✓' : result.status === 'error' ? '✗' : '...'}
                     </span>
                   </TableCell>
                   <TableCell className="text-gray-400">{result.message}</TableCell>
-                  <TableCell className="text-gray-400">{result.latency ? `${result.latency}ms` : '-'}</TableCell>
+                  <TableCell className="text-gray-400">
+                    {result.latency ? `${result.latency}ms` : '-'}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

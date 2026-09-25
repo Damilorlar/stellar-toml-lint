@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Typography } from '@mui/material';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Chip,
+  Typography,
+} from '@mui/material';
 import type { Diagnostic } from '../types';
 
 interface DiagnosticsProps {
@@ -19,10 +29,14 @@ export default function Diagnostics({ diagnostics }: DiagnosticsProps) {
 
   const severityColor = (severity: string) => {
     switch (severity) {
-      case 'error': return 'error';
-      case 'warning': return 'warning';
-      case 'info': return 'info';
-      default: return 'default';
+      case 'error':
+        return 'error';
+      case 'warning':
+        return 'warning';
+      case 'info':
+        return 'info';
+      default:
+        return 'default';
     }
   };
 
@@ -55,13 +69,19 @@ export default function Diagnostics({ diagnostics }: DiagnosticsProps) {
                 />
               </TableCell>
               <TableCell>
-                <Typography variant="body2" className="text-gray-300">{diag.rule}</Typography>
+                <Typography variant="body2" className="text-gray-300">
+                  {diag.rule}
+                </Typography>
               </TableCell>
               <TableCell>
-                <Typography variant="body2" className="text-gray-200">{diag.message}</Typography>
+                <Typography variant="body2" className="text-gray-200">
+                  {diag.message}
+                </Typography>
               </TableCell>
               <TableCell>
-                <Typography variant="body2" className="text-gray-400">{diag.position?.line}</Typography>
+                <Typography variant="body2" className="text-gray-400">
+                  {diag.position?.line}
+                </Typography>
               </TableCell>
             </TableRow>
           ))}

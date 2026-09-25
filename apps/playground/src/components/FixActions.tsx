@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Button, Paper, Typography, List, ListItem, ListItemText, Chip, Box, Icon } from '@mui/material';
+import {
+  Button,
+  Paper,
+  Typography,
+  List,
+  ListItem,
+  ListItemText,
+  Chip,
+  Box,
+  Icon,
+} from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WrenchIcon from '@mui/icons-material/Build';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -63,18 +73,31 @@ export default function FixActions() {
               <ListItemText
                 primary={
                   <Box className="flex items-center gap-2">
-                    <Typography variant="body2" className="text-gray-200">{fix.suggestion}</Typography>
-                    <Chip label={fix.severity} size="small" color={fix.severity === 'error' ? 'error' : 'warning'} variant="outlined" />
+                    <Typography variant="body2" className="text-gray-200">
+                      {fix.suggestion}
+                    </Typography>
+                    <Chip
+                      label={fix.severity}
+                      size="small"
+                      color={fix.severity === 'error' ? 'error' : 'warning'}
+                      variant="outlined"
+                    />
                   </Box>
                 }
                 secondary={
-                  <Typography variant="caption" className="text-gray-500">{fix.rule}</Typography>
+                  <Typography variant="caption" className="text-gray-500">
+                    {fix.rule}
+                  </Typography>
                 }
               />
               {fix.applied ? (
-                <Icon className="text-green-500"><CheckCircleIcon /></Icon>
+                <Icon className="text-green-500">
+                  <CheckCircleIcon />
+                </Icon>
               ) : (
-                <Icon className="text-gray-500"><WarningIcon /></Icon>
+                <Icon className="text-gray-500">
+                  <WarningIcon />
+                </Icon>
               )}
             </ListItem>
           ))}
@@ -88,7 +111,11 @@ export default function FixActions() {
         startIcon={<WrenchIcon />}
         className="bg-blue-600 hover:bg-blue-700"
       >
-        {applying ? 'Applying...' : fixes.every((f) => f.applied) ? 'All Fixes Applied' : 'Apply Autofix'}
+        {applying
+          ? 'Applying...'
+          : fixes.every((f) => f.applied)
+            ? 'All Fixes Applied'
+            : 'Apply Autofix'}
       </Button>
     </Box>
   );

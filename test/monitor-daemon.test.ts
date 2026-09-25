@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { MonitorDaemon } from '../src/monitor/daemon.js';
 
-const run = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, '..', 'dist', 'cli.js');
 
@@ -75,18 +73,6 @@ async function server(options: Parameters<typeof startServer>[0] = {}): Promise<
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((s) => s.close()));
 });
-
-async function cli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await run('node', [CLI, ...args], {
-      env: { ...process.env, NO_COLOR: '1' },
-    });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const e = error as { code?: number; stdout?: string; stderr?: string };
-    return { code: e.code ?? 1, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
-  }
-}
 
 // ── MonitorDaemon tests ───────────────────────────────────────
 
@@ -234,9 +220,7 @@ describe('MonitorDaemon', () => {
 
 describe('cli --monitor', () => {
   it('starts and runs the monitor daemon', async () => {
-    let callCount = 0;
     const source = createServer((_req: IncomingMessage, res: ServerResponse) => {
-      callCount++;
       res.writeHead(200);
       res.end('VERSION="1.0.0"\n');
     });

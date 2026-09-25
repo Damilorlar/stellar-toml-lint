@@ -30,39 +30,31 @@ export default function EditorComponent({ onDiagnostics }: EditorProps) {
     };
   }, []);
 
-  const handleMount = useCallback(
-    (_editor: unknown, _monaco: unknown) => {
-      workerRef.current = new Worker(
-        new URL('../workers/linter.worker.ts', import.meta.url),
-        { type: 'module' },
-      );
+  const handleMount = useCallback(() => {
+    workerRef.current = new Worker(new URL('../workers/linter.worker.ts', import.meta.url), {
+      type: 'module',
+    });
 
-      workerRef.current.onmessage = (e: MessageEvent) => {
-        const { type, result } = e.data;
-        if (type === 'result') {
-          const diags: Diagnostic[] = result.diagnostics ?? [];
-          onDiagnostics(diags);
-          setLoading(false);
-        } else if (type === 'error') {
-          console.error('Worker error:', e.data.message);
-          setLoading(false);
-        }
-      };
-    },
-    [onDiagnostics],
-  );
+    workerRef.current.onmessage = (e: MessageEvent) => {
+      const { type, result } = e.data;
+      if (type === 'result') {
+        const diags: Diagnostic[] = result.diagnostics ?? [];
+        onDiagnostics(diags);
+        setLoading(false);
+      } else if (type === 'error') {
+        setLoading(false);
+      }
+    };
+  }, [onDiagnostics]);
 
-  const handleChange = useCallback(
-    (value: string | undefined) => {
-      if (!value || !workerRef.current) return;
-      setLoading(true);
-      workerRef.current.postMessage({
-        type: 'lint',
-        content: value,
-      });
-    },
-    [],
-  );
+  const handleChange = useCallback((value: string | undefined) => {
+    if (!value || !workerRef.current) return;
+    setLoading(true);
+    workerRef.current.postMessage({
+      type: 'lint',
+      content: value,
+    });
+  }, []);
 
   return (
     <div className="h-full flex flex-col">

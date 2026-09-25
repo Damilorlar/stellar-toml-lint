@@ -26,9 +26,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-white">
       <header className="bg-gray-900 border-b border-gray-800 px-6 py-3">
-        <h1 className="text-xl font-bold text-white">
-          Stellar TOML Lint Playground
-        </h1>
+        <h1 className="text-xl font-bold text-white">Stellar TOML Lint Playground</h1>
       </header>
       <div className="flex flex-1 overflow-hidden">
         <div className="w-1/2 h-full">

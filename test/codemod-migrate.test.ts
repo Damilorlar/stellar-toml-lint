@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from 'smol-toml';
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrate, migrateSep41, migrateV2, generateDiff, dryRun, runMigration, detectConflicts } from '../src/codemod/migrate.js';
+import {
+  migrate,
+  migrateSep41,
+  migrateV2,
+  generateDiff,
+  dryRun,
+  runMigration,
+  detectConflicts,
+} from '../src/codemod/migrate.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -11,17 +19,6 @@ const LEGACY_SEP41_TOML = `# Example stellar.toml with legacy federation config
 VERSION = "2.7.0"
 NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015"
 FEDERATION_SERVER = "https://api.example.com/federation"
-
-[DOCUMENTATION]
-ORG_NAME = "Example Anchor"
-ORG_URL = "https://example.com"
-`;
-
-const MODERN_SEP41_TOML = `# Example stellar.toml with legacy federation config
-VERSION = "2.7.0"
-NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015"
-WEB_AUTH_CONTRACT_ID = "C${'a'.repeat(56)}"
-AUTH_SERVER = "https://api.example.com/federation"
 
 [DOCUMENTATION]
 ORG_NAME = "Example Anchor"

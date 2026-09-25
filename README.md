@@ -117,6 +117,7 @@ it was before.
 | `-f, --format <fmt>`        | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`, `html`, `checkstyle`, `markdown`                                                |
 | `--strict`                  | Treat warnings as errors                                                                                                                        |
 | `--max-warnings <n>`        | Fail if warnings exceed `n`                                                                                                                     |
+| `--fail-on <severity>`      | Exit `1` when any diagnostic meets or exceeds `error`, `warning`, or `info`; takes precedence over `--strict`                                   |
 | `--check-network`           | Verify accounts, CORS pre-flight responses, `HORIZON_URL`, SEP-8 flags, TLS certificate expiry, `ANCHOR_QUOTE_SERVER`, and SEP-6 `/info` online |
 | `--verify-sep10`            | Verify SEP-10 nonce uniqueness and replay resistance (requires `--check-network`)                                                               |
 | `--crawl-peers`             | Discover validator peers with overlay `GET_PEERS` messages (requires `--check-network`)                                                         |
@@ -153,10 +154,11 @@ it was before.
 | `--json-schema`             | Print a JSON Schema (Draft 2020-12) for stellar.toml to stdout                                                                                  |
 
 Every flag above takes precedence over the [configuration file](#configuration-file), and
-`--preset` — being a flag — takes precedence over it too.
+`--preset` — being a flag — takes precedence over it too. `--fail-on` names the exit-code threshold
+explicitly, so it — not `--strict` — decides when a run containing warnings fails.
 
-Exit codes: **0** no errors, **1** problems found, **2** bad usage, an unmatched glob, or I/O
-failure.
+Exit codes: **0** no errors, **1** problems found or a `--fail-on` threshold met, **2** bad usage,
+an unmatched glob, or I/O failure.
 
 Colour output follows the [NO_COLOR standard](https://no-color.org): setting `NO_COLOR` to any
 non-empty value disables it, an empty value counts as unset, and stdout not being a terminal
@@ -338,6 +340,7 @@ Pass `--interval <ms>` to control the polling frequency. Send `SIGINT` to stop t
 #### `--migrate sep41`
 
 Migrates legacy federation server declarations to the modern SEP-41 format:
+
 - Converts `FEDERATION_SERVER` to `WEB_AUTH_CONTRACT_ID`
 - Adds `AUTH_SERVER` if missing
 - Queries Horizon to resolve missing contract attributes
@@ -349,6 +352,7 @@ stellar-toml-lint --migrate sep41 stellar.toml
 #### `--migrate v2`
 
 Migrates classic asset declarations to Soroban SAC contract IDs:
+
 - Converts classic asset declarations with `issuer` to `contract` fields
 - Queries Horizon to resolve asset attributes during migration
 

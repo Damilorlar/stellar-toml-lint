@@ -1,4 +1,4 @@
-import { lintBrowser, type BrowserLintOptions } from 'stellar-toml-lint/browser';
+import { lintBrowser } from 'stellar-toml-lint/browser';
 
 self.onmessage = async (event: MessageEvent) => {
   const message = event.data;
