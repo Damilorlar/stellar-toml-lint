@@ -6,10 +6,9 @@ import { currencyRules } from './currencies.js';
 import { validatorRules } from './validators.js';
 import { validatorDedupRules } from './validator-dedup.js';
 import { securityRules } from './security.js';
-
+import { deprecationRules } from './deprecations.js';
 import { emailMxRule } from './email-mx.js';
 import { maxDecimalsRules } from './max-decimals.js';
-
 import { horizonRules } from './horizon-check.js';
 import { orgUrlRules } from './org-url-check.js';
 import { sep38Rules } from './sep38-endpoints.js';
@@ -21,6 +20,7 @@ import { corsPreflightRules } from '../network/cors-preflight.js';
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
   ...generalRules,
+  ...deprecationRules,
   ...documentationRules,
   ...principalRules,
   ...currencyRules,
@@ -45,6 +45,7 @@ export const ruleIds: string[] = allRules.map((r) => r.id).sort();
 
 export {
   generalRules,
+  deprecationRules,
   documentationRules,
   principalRules,
   currencyRules,
