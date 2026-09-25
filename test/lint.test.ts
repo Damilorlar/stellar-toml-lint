@@ -91,7 +91,7 @@ describe('broken fixture', () => {
     'principals/required-fields',
     'principals/photo-hashes',
     'principals/social-handles',
-    'currencies/code',
+    'currencies/asset-code-too-long',
     'currencies/issuer-or-contract',
     'currencies/issuance-exclusive',
     'currencies/enums',
@@ -111,7 +111,9 @@ describe('broken fixture', () => {
   it('gives every diagnostic a message and a rule id', () => {
     for (const d of result.diagnostics) {
       expect(d.message.length).toBeGreaterThan(0);
-      expect(d.rule).toMatch(/^[a-z]+\/[a-z0-9-]+$/);
+      // Namespaces may contain digits (sep12/...), so the first segment is
+      // [a-z][a-z0-9]* rather than [a-z]+.
+      expect(d.rule).toMatch(/^[a-z][a-z0-9]*\/[a-z0-9-]+$/);
     }
   });
 
@@ -269,6 +271,33 @@ describe('the native asset', () => {
   it('still requires an issuer for a non-native code', () => {
     const result = lint(withValidBase('[[CURRENCIES]]\ncode="USDC"'));
     expect(find(result, 'currencies/issuer-or-contract')).toHaveLength(1);
+  });
+
+  it('flags display_decimals on the native asset as info', () => {
+    const result = lint(withValidBase('[[CURRENCIES]]\ncode="native"\ndisplay_decimals=2'));
+    const [d] = find(result, 'currencies/display-decimals');
+    expect(d?.severity).toBe('info');
+    expect(d?.message).toContain('native asset');
+    expect(d?.path).toBe('CURRENCIES[0].display_decimals');
+  });
+
+  it('flags display_decimals on bare XLM with no issuer', () => {
+    const result = lint(withValidBase('[[CURRENCIES]]\ncode="XLM"\ndisplay_decimals=2'));
+    expect(find(result, 'currencies/display-decimals')).toHaveLength(1);
+  });
+
+  it('stays silent when the native entry omits display_decimals', () => {
+    const result = lint(withValidBase('[[CURRENCIES]]\ncode="native"'));
+    expect(find(result, 'currencies/display-decimals')).toEqual([]);
+  });
+
+  it('stays silent when a non-native entry sets display_decimals', () => {
+    const result = lint(
+      withValidBase(
+        `[[CURRENCIES]]\ncode="USDC"\nissuer="${ACCOUNT_A}"\ndisplay_decimals=2\nis_unlimited=true`,
+      ),
+    );
+    expect(find(result, 'currencies/display-decimals')).toEqual([]);
   });
 });
 
