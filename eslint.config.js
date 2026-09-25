@@ -24,4 +24,18 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-member-access': 'off',
     },
   },
+  {
+    // LSP module has parameters that are intentionally unused in function signatures.
+    files: ['src/lsp.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+  {
+    // Benchmarks use console output for reporting.
+    files: ['benchmarks/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
 );

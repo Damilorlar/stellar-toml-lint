@@ -15,6 +15,19 @@ import { githubHandleRules } from './github-handle.js';
 import { trailingSlashRule } from './trailing-slash.js';
 import { uppercaseKeyRules } from './uppercase-keys.js';
 
+/**
+ * The `WEB_AUTH_CONTRACT_ID` when it is a valid C... id, with its file path,
+ * so network checks can verify the SEP-45 auth contract's TTL. Invalid ids
+ * are reported offline by `general/web-auth-contract-id` instead.
+ */
+export function webAuthContractIdOf(
+  doc: Record<string, unknown>,
+): { id: string; path: string } | undefined {
+  const value = doc.WEB_AUTH_CONTRACT_ID;
+  if (!isString(value) || !isContractId(value)) return undefined;
+  return { id: value, path: 'WEB_AUTH_CONTRACT_ID' };
+}
+
 /** Rules covering file-level constraints and the global (untabled) fields. */
 export const generalRules: Rule[] = [
   ...uppercaseKeyRules,
@@ -25,7 +38,10 @@ export const generalRules: Rule[] = [
     severity: 'error',
     description: 'stellar.toml must not exceed 100KB',
     run(ctx) {
-      const bytes = Buffer.byteLength(ctx.source, 'utf8');
+      const bytes =
+        typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(ctx.source, 'utf8')
+          : new TextEncoder().encode(ctx.source).length;
       if (bytes > MAX_FILE_BYTES) {
         ctx.report({
           rule: 'file/max-size',
@@ -133,6 +149,7 @@ export const generalRules: Rule[] = [
         suggestion: near
           ? `Replace it with exactly: ${normalized}`
           : 'Use the Public, Testnet, or Futurenet passphrase exactly as published.',
+        ...(near ? { fix: { value: normalized } } : {}),
       });
     },
   },
