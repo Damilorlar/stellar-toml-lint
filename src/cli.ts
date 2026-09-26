@@ -32,6 +32,7 @@ import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
 import { checkRegulatedIssuerFlags } from './rules/regulated-flags.js';
+import { checkFixedSupplyIssuerLocks } from './rules/fixed-supply-audit.js';
 import { checkContracts } from './soroban.js';
 import { checkSep6 } from './cross-sep/sep6.js';
 import { checkSep10Replay } from './protocols/sep10-replay.js';
@@ -380,6 +381,7 @@ async function main(argv: string[]): Promise<number> {
                 ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
                   rules,
                 })),
+                ...(await checkFixedSupplyIssuerLocks(fileResult.parsed, fetchImpl, { rules })),
                 ...(await checkCorsPreflight(fileResult.parsed, fetchImpl, { rules })),
                 // Opens its own sockets, outside the fixture transport.
                 ...(cli.mockFixtures === undefined
