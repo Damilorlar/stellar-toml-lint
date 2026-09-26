@@ -19,7 +19,8 @@ export type RuleCategory =
   | 'validators'
   | 'network'
   | 'policy'
-  | 'sep12';
+  | 'sep12'
+  | 'codemod';
 
 /** A 1-based position in the source file. */
 export interface Position {
@@ -94,6 +95,14 @@ export interface LintOptions {
   strict?: boolean;
   /** Verify network-dependent account and currency metadata checks. */
   checkNetwork?: boolean;
+  /**
+   * Fetch and lint the `toml` pointers referenced by `CURRENCIES` entries.
+   *
+   * Consumes the caller's transport, so a stubbed `fetchImpl` keeps the linked
+   * documents hermetic. Only honoured by `lintDomain`; offline `lint` runs have
+   * no transport to follow a pointer with.
+   */
+  followLinks?: boolean;
   /**
    * TLS session observed while fetching the file.
    *
