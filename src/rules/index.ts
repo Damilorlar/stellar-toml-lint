@@ -13,6 +13,7 @@ import { maxDecimalsRules } from './max-decimals.js';
 import { horizonRules } from './horizon-check.js';
 import { orgUrlRules } from './org-url-check.js';
 import { sep38Rules } from './sep38-endpoints.js';
+import { imageAssetRules } from './image-assets.js';
 import { sorobanRules } from '../soroban.js';
 import { sep12Rules } from './sep12-schema.js';
 import { sep6Rules } from '../cross-sep/sep6.js';
@@ -43,6 +44,7 @@ export const allRules: Rule[] = [
   ...horizonRules,
   ...orgUrlRules,
   ...sep38Rules,
+  ...imageAssetRules,
   ...sorobanRules,
   ...sep41MetadataRules,
   ...sep12Rules,
@@ -72,6 +74,7 @@ export {
   securityRules,
   horizonRules,
   sep38Rules,
+  imageAssetRules,
   sorobanRules,
   sep41MetadataRules,
   sep12Rules,
