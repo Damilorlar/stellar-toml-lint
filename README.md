@@ -618,6 +618,10 @@ into the summary.
 
 ### Pre-commit
 
+The repo ships a `.pre-commit-hooks.yaml` defining `id: stellar-toml-lint` with two consumption paths:
+
+**Node (most developers)**
+
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -626,8 +630,22 @@ repos:
       - id: stellar-toml-lint
         name: Lint stellar.toml
         entry: npx stellar-toml-lint
-        language: system
-        files: '\.well-known/stellar\.toml$'
+        language: node
+        files: '(?:.*/)?\.?stellar\.toml$'
+```
+
+**Docker (no local node required)**
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: stellar-toml-lint
+        name: Lint stellar.toml
+        entry: stellar-toml-lint
+        language: docker_image
+        files: '(?:.*/)?\.?stellar\.toml$'
 ```
 
 ### Offline and air-gapped CI
