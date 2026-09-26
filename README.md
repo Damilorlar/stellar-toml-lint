@@ -111,6 +111,7 @@ The exit code is `1` when any file fails and `0` when they all pass. The summary
 it was before.
 
 ### Options
+
 | Flag                 | Effect                                                                          |
 | -------------------- | ------------------------------------------------------------------------------- |
 | `-d, --domain <d>`   | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks           |
@@ -224,6 +225,7 @@ Every flag above takes precedence over the [configuration file](#configuration-f
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage, an unmatched glob, or I/O
 failure.
+
 | Flag                        | Effect                                                                                                                                                                     |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-d, --domain <d>`          | Serving domain. Enables CORS, content-type, TLS, image-asset, and `ORG_URL` checks                                                                                         |
@@ -1014,7 +1016,6 @@ browser clients. A connection, TLS, timeout, or invalid-status failure emits
 `sep3/missing-cors-headers`. This is an endpoint liveness and transport check, not a full signature
 verification.
 
-
 **History publish validation** (with `--check-network`) — each validator `HISTORY` archive is
 checked for the three most recent checkpoints. The audit verifies that `ledger-*.xdr.gz`,
 `transactions-*.xdr.gz`, and `results-*.xdr.gz` are present and non-empty, and compares
@@ -1041,7 +1042,6 @@ Cloudflare (`1.1.1.1`), Google (`8.8.8.8`), and Quad9 (`9.9.9.9`) through their 
 endpoints. Resolver sets are normalized and compared; disagreement emits
 `security/dns-resolver-divergence` (error), while an explicit unauthenticated response emits
 `security/dnssec-not-enabled` (warning).
-
 
 The same flag sends browser-shaped `OPTIONS` requests to each declared `WEB_AUTH_ENDPOINT`,
 `TRANSFER_SERVER`, `KYC_SERVER`, and `ANCHOR_QUOTE_SERVER`. The response must allow the requesting
