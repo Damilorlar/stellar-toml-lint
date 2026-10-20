@@ -755,9 +755,7 @@ async function main(argv: string[]): Promise<number> {
             ...(cli.verifyPostmessage
               ? await checkSep24PostMessage(domainResult.parsed, fetchImpl, {
                   rules,
-                  ...(cli.postmessageUrl !== undefined
-                    ? { url: cli.postmessageUrl }
-                    : {}),
+                  ...(cli.postmessageUrl !== undefined ? { url: cli.postmessageUrl } : {}),
                 })
               : []),
             ...(cli.verifySep12Deletion && cli.checkNetwork
@@ -1060,9 +1058,7 @@ async function main(argv: string[]): Promise<number> {
               networkDiagnostics.push(
                 ...(await checkSep24PostMessage(fileResult.parsed, fetchImpl, {
                   rules,
-                  ...(cli.postmessageUrl !== undefined
-                    ? { url: cli.postmessageUrl }
-                    : {}),
+                  ...(cli.postmessageUrl !== undefined ? { url: cli.postmessageUrl } : {}),
                 })),
               );
             }

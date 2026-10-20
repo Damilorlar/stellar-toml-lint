@@ -130,6 +130,7 @@ The exit code is `1` when any file fails and `0` when they all pass. The summary
 it was before.
 
 ### Options
+
 | Flag                      | Effect                                                                          |
 | ------------------------- | ------------------------------------------------------------------------------- |
 | `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks           |
