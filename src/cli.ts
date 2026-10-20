@@ -16,6 +16,7 @@ import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
 import { checkCrossSepFees } from './rules/cross-sep-fee-auditor.js';
+import { verifySep24 } from './protocols/sep24.js';
 import { allRules } from './rules/index.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
 import {
@@ -24,6 +25,7 @@ import {
 } from './generators/anchor-platform.js';
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
+import { isUrl } from './predicates.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
@@ -45,6 +47,8 @@ interface Cli {
   maxWarnings?: number;
   checkNetwork: boolean;
   auditFees?: boolean;
+  verifyPostmessage?: boolean;
+  postmessageUrl?: string;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -82,6 +86,12 @@ OPTIONS
       --audit-fees        Compare fixed and percentage fees across stellar.toml,
                           SEP-6 /info, SEP-24 /info, and SEP-38 /prices
                           (implies --check-network)
+      --verify-postmessage
+                          Inspect SEP-24 interactive postMessage callbacks
+                          (implies --check-network; needs Playwright or Puppeteer)
+      --postmessage-url <url>
+                          Interactive SEP-24 URL to inspect instead of creating
+                          a test deposit session
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -248,6 +258,16 @@ async function applyNetworkChecks(result: LintResult, cli: Cli): Promise<LintRes
     diagnostics.push(...(await checkCrossSepFees(result.parsed, fetch, { rules: cli.rules })));
   }
 
+  if (cli.verifyPostmessage) {
+    diagnostics.push(
+      ...(await verifySep24(result.parsed, fetch, {
+        rules: cli.rules,
+        verifyPostmessage: true,
+        ...(cli.postmessageUrl !== undefined ? { postmessage: { url: cli.postmessageUrl } } : {}),
+      })),
+    );
+  }
+
   if (diagnostics.length === 0) return result;
   return finalize(
     [...result.diagnostics, ...diagnostics],
@@ -361,6 +381,20 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.auditFees = true;
         cli.checkNetwork = true;
         break;
+
+      case '--verify-postmessage':
+        cli.verifyPostmessage = true;
+        cli.checkNetwork = true;
+        break;
+
+      case '--postmessage-url': {
+        const value = requireValue(argv, ++i, arg);
+        if (!isUrl(value)) {
+          throw new Error('--postmessage-url expects an http or https URL.');
+        }
+        cli.postmessageUrl = value;
+        break;
+      }
 
       case '--webhook-slack':
       case '--webhook-discord': {

@@ -82,6 +82,8 @@ cat stellar.toml | stellar-toml-lint -
 | `--max-warnings <n>` | Fail if warnings exceed `n`                                           |
 | `--check-network`    | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
 | `--audit-fees`       | Compare fee disclosures across SEP-1, SEP-6, SEP-24, and SEP-38      |
+| `--verify-postmessage` | Inspect SEP-24 interactive `postMessage` callbacks                  |
+| `--postmessage-url <url>` | Interactive SEP-24 URL to inspect                               |
 | `--off <rule>`       | Disable a rule (repeatable)                                           |
 | `--error <rule>`     | Raise a rule to error (repeatable)                                    |
 | `--warn <rule>`      | Lower a rule to warning (repeatable)                                  |
@@ -99,6 +101,8 @@ cat stellar.toml | stellar-toml-lint -
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                           |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
 | `--audit-fees`            | Compare fee disclosures across SEP-1, SEP-6, SEP-24, and SEP-38       |
+| `--verify-postmessage`    | Inspect SEP-24 interactive `postMessage` callbacks                    |
+| `--postmessage-url <url>` | Interactive SEP-24 URL to inspect                                    |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                      |
 | `--webhook-discord <url>` | POST a Discord embed with the run summary                             |
 | `--off <rule>`            | Disable a rule (repeatable)                                           |
@@ -297,7 +301,7 @@ interface Diagnostic {
   rule: string; // 'currencies/issuance-exclusive'
   severity: 'error' | 'warning' | 'info';
   category:
-    'file' | 'general' | 'documentation' | 'principals' | 'currencies' | 'validators' | 'network';
+    'file' | 'general' | 'documentation' | 'principals' | 'currencies' | 'validators' | 'network' | 'fees' | 'sep24';
   message: string;
   path?: string; // 'CURRENCIES[1].issuer'
   position?: { line: number; column: number };
@@ -385,6 +389,16 @@ percentage, or tiered schedules that disagree for the same asset emit
 `fees/contradictory-fee-schedules` (error), so a wallet never discovers the real price mid-transfer.
 An endpoint that charges a higher percentage than `stellar.toml` declares emits
 `fees/undisclosed-percentage-fee` (warning), surfacing hidden consumer costs before they are applied.
+
+With `--check-network --verify-postmessage`, the linter loads the anchor's SEP-24 interactive page in
+a headless browser and records outgoing `postMessage` callbacks. A callback sent with
+`targetOrigin: "*"` emits `sep24/insecure-postmessage-wildcard` (warning), because any embedding page
+can read the transaction payload. A callback whose payload is not a valid SEP-24 event such as
+`{ "type": "stellar:transaction_completed" }` emits `sep24/malformed-postmessage-payload` (error).
+The probe creates a test deposit session to discover the interactive URL; pass `--postmessage-url`
+to inspect a known URL directly. This check needs Playwright or Puppeteer installed in the
+environment running the linter (`npm install playwright && npx playwright install chromium`, or
+`npm install puppeteer`).
 
 ### Severity
 
