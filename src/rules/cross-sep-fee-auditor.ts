@@ -1,4 +1,5 @@
 import type { Diagnostic, Rule, RuleOverrides } from '../types.js';
+import { adaptiveFetch } from '../network/adaptive-client.js';
 import { isString, isUrl } from '../predicates.js';
 
 const CONTRADICTORY_RULE = 'fees/contradictory-fee-schedules';
@@ -368,7 +369,7 @@ function compareUndisclosed(
 
 export async function checkCrossSepFees(
   doc: Record<string, unknown>,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = adaptiveFetch,
   options: AuditOptions = {},
 ): Promise<Diagnostic[]> {
   const assets = declaredAssets(doc);

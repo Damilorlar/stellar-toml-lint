@@ -1,5 +1,6 @@
 import type { Diagnostic, Rule, RuleOverrides } from '../types.js';
 import { isInteger, isString, isUrl } from '../predicates.js';
+import { adaptiveFetch } from '../network/adaptive-client.js';
 
 /**
  * Opt-in validation of the SEP-38 `ANCHOR_QUOTE_SERVER` endpoints.
@@ -91,14 +92,16 @@ function isNativeEntry(entry: Record<string, unknown>): boolean {
 
 /**
  * SEP-38 Asset Identification Format ids for the classic assets the file
- * declares, deduplicated and in declaration order.
+ * declares, deduplicated and in declaration order. Exported for the
+ * `--verify-sep38` engine, which quotes the same identifiers back at the
+ * server.
  *
  * `toml` pointer entries are skipped: the real definition lives in another
  * file this check does not fetch. Contract-only entries are skipped too —
  * SEP-38 pairs are overwhelmingly classic assets and `iso4217` fiat, and the
  * SEP-11 identifier for a contract token is not settled enough to guess at.
  */
-function sellAssetsOf(doc: Record<string, unknown>): string[] {
+export function sellAssetsOf(doc: Record<string, unknown>): string[] {
   const assets = new Set<string>();
   for (const entry of currenciesOf(doc)) {
     if (entry.toml !== undefined) continue;
@@ -337,7 +340,7 @@ async function checkQuote(
 /** Runs both SEP-38 endpoint audits against the advertised quote server. */
 export async function checkSep38(
   doc: Record<string, unknown>,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = adaptiveFetch,
   options: AuditOptions = {},
 ): Promise<Diagnostic[]> {
   const server = doc.ANCHOR_QUOTE_SERVER;

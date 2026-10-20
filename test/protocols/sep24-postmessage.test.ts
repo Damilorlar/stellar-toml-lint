@@ -195,8 +195,8 @@ describe('checkSep24PostMessage', () => {
 });
 
 describe('verifySep24', () => {
-  it('does nothing unless verifyPostmessage is enabled', async () => {
-    const diagnostics = await verifySep24(doc(), async () => jsonResponse({}), {
+  it('stays silent without a transfer server or postMessage request', async () => {
+    const diagnostics = await verifySep24({}, async () => jsonResponse({}), {
       verifyPostmessage: false,
     });
 
@@ -204,7 +204,7 @@ describe('verifySep24', () => {
   });
 
   it('delegates to the postMessage verifier when enabled', async () => {
-    const diagnostics = await verifySep24(doc(), async () => jsonResponse({}), {
+    const diagnostics = await verifySep24({}, async () => jsonResponse({}), {
       verifyPostmessage: true,
       postmessage: {
         url: INTERACTIVE,

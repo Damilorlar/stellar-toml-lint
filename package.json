@@ -1,7 +1,7 @@
 {
   "name": "stellar-toml-lint",
   "version": "0.1.0",
-  "description": "Offline SEP-1 linter for stellar.toml \u2014 validate your Stellar Info File before you deploy it.",
+  "description": "Offline SEP-1 linter for stellar.toml — validate your Stellar Info File before you deploy it.",
   "keywords": [
     "stellar",
     "sep-1",
@@ -35,20 +35,34 @@
     },
     "./browser": {
       "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js"
+      "import": "./dist/browser/index.js",
+      "default": "./dist/browser/stellar-toml-lint.esm.min.js"
     },
     "./worker": {
       "types": "./dist/worker.d.ts",
-      "import": "./dist/worker.js"
+      "import": "./dist/browser/worker.js",
+      "default": "./dist/browser/stellar-toml-lint.worker.min.js"
+    },
+    "./edge": {
+      "types": "./dist/edge.d.ts",
+      "import": "./dist/edge.js"
     }
   },
   "files": [
     "dist",
+    "templates",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "packaging/homebrew/stellar-toml-lint.rb"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && npm run build:browser && npm run build:docs",
+    "build:binaries": "node scripts/build-binaries.mjs",
+    "build:browser": "node scripts/build-browser.js",
+    "build:docs": "node scripts/build-docs.js",
+    "build:vscode": "tsc -p editors/vscode/tsconfig.json",
+    "package:vscode": "npm run build:vscode && npx --prefix editors/vscode vsce package --out ../../stellar-toml-lint.vsix",
+    "build:edge": "node scripts/build-edge.mjs",
     "dev": "tsc -p tsconfig.build.json --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -57,21 +71,38 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run build"
+    "corpus": "vite-node test/corpus/run.ts",
+    "corpus:update": "vite-node test/corpus/run.ts --update",
+    "prepublishOnly": "npm run build",
+    "bench": "npx tsx benchmarks/runner.ts",
+    "bench:regression": "vite-node benchmarks/regression-suite.ts"
   },
   "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "@stellar/stellar-base": "^15.0.0",
+    "@yao-pkg/pkg": "^5.16.1",
+    "jszip": "^3.10.1",
+    "pdfmake": "^0.3.11",
     "smol-toml": "^1.7.1"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
+    "@types/pdfmake": "^0.3.3",
     "@vitest/coverage-v8": "^2.1.8",
+    "esbuild": "^0.25.12",
     "eslint": "^9.17.0",
     "fast-xml-parser": "^5.11.1",
     "prettier": "^3.4.2",
+    "tinybench": "^6.2.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0",
-    "vitest": "^2.1.8"
+    "vite-node": "^2.1.9",
+    "vitest": "^2.1.8",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2",
+    "yaml": "^2.9.1"
   },
   "repository": {
     "type": "git",

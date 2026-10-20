@@ -1,0 +1,2 @@
+# Lighthouse CI output (regenerate with `npm run audit`).
+lighthouse-report/

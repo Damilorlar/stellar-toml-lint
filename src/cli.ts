@@ -7,48 +7,249 @@
  * dependency tree small enough to audit by eye.
  */
 import { readFile, writeFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import process from 'node:process';
-import { lint, lintDomain, finalize } from './lint.js';
+import { assertKnownRule, loadConfig } from './config.js';
+import { compareToml, formatDiff, hasBreakingChanges } from './diff.js';
+import { lint, lintDomain, finalize, followTomlPointers } from './lint.js';
 import { checkNetworkAccounts } from './network-checks.js';
-import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
+import { checkCorsPreflight } from './network/cors-preflight.js';
+import { checkCertExpiry } from './network/cert-expiry.js';
+import { auditIpv6Reachability } from './network/ipv6-auditor.js';
+import { auditHttpVersions } from './network/http-version-auditor.js';
+import { auditBgpRoutes } from './network/bgp-route-detector.js';
+import { checkRateLimitResilience } from './network/rate-limit-tester.js';
+import { horizonUrlFor } from './network-checks.js';
+import { checkSignatureStateMachineFromDocument } from './security/signature-state-machine.js';
+import { checkPeerPortReachability } from './validators/net-probe.js';
+import {
+  formatCheckstyle,
+  formatCount,
+  formatGithub,
+  formatHtml,
+  formatJson,
+  formatJunit,
+  formatMarkdown,
+  formatNdjson,
+  formatPrComment,
+  formatReadiness,
+  formatReadinessJson,
+  formatRunSummary,
+  formatSarif,
+  formatSonar,
+  formatSummary,
+  formatText,
+} from './reporters.js';
+import { calculateReadiness } from './readiness.js';
+import { expandGlob, hasMagic } from './glob.js';
+import { generateAnchorTestsConfig } from './integrations/anchor-tests.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
+import { checkSep3Auth } from './rules/sep3-auth.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
 import { checkCrossSepFees } from './rules/cross-sep-fee-auditor.js';
-import { verifySep24 } from './protocols/sep24.js';
+import { checkRegulatedIssuerFlags } from './rules/regulated-flags.js';
+import { checkFixedSupplyIssuerLocks } from './rules/fixed-supply-audit.js';
+import { checkContracts } from './soroban.js';
+import { checkContractMetadata } from './soroban/contractMetadata.js';
+import { checkCorridorRouting } from './corridors/routingVerifier.js';
+import { checkHistoryArchives } from './validators/historyArchive.js';
+import { checkBridgeReserves } from './validators/bridgeReserve.js';
+import { auditTomlContractEnvMeta } from './soroban/env-meta.js';
+import { auditTomlContractEvents } from './soroban/events.js';
+import { auditTomlContractAdmins } from './soroban/admin-auditor.js';
+import { auditTomlContractSimulation } from './soroban/simulation.js';
+import { auditTomlStorageFootprint } from './soroban/storage-footprint.js';
+import { auditTomlContractAuth } from './soroban/auth-auditor.js';
+import { checkNetworkConsistency } from './soroban/multi-network.js';
+import {
+  checkContractDependencies,
+  graphForDocument,
+  renderDependencyGraph,
+} from './soroban/dependency-graph.js';
+import {
+  checkContractErrorCatalogues,
+  formatContractErrorCatalogues,
+  type ContractErrorCatalogue,
+} from './soroban/errors.js';
+import { checkSep6 } from './cross-sep/sep6.js';
+import { checkHistoryArchive } from './rules/history-url-check.js';
+import { checkSep10Replay } from './protocols/sep10-replay.js';
+import { checkTokenBinding } from './security/token-binding.js';
+import { verifySep6Integration } from './protocols/sep6.js';
+import { verifySep31 } from './protocols/sep31.js';
+import { verifySep31Webhooks } from './protocols/sep31-webhook-verifier.js';
+import { verifySep8 } from './protocols/sep8.js';
+import { verifySep8Webhook } from './sep8/webhookCoordinator.js';
+import { verifySep38 } from './protocols/sep38.js';
+import { validateIpfsMetadata } from './validators/ipfsMetadata.js';
+import { auditTomlInstanceStorage } from './soroban/instance-storage-auditor.js';
+import { auditTomlAccountData } from './security/account-data-auditor.js';
+import { checkSep24PostMessage, verifySep24 } from './protocols/sep24.js';
+import { verifySep12 } from './protocols/sep12.js';
+import { verifySep12Deletion } from './protocols/sep12-deletion.js';
+import { verifySep30 } from './protocols/sep30.js';
+import { verifySep24QuoteLock } from './protocols/sep24-quote-lock.js';
+import { checkCollateralGovernance } from './security/collateral-governance.js';
+import { simulateClawback } from './security/clawback-simulator.js';
+import { checkHistoryPublish } from './history/publish-validator.js';
+import { checkArchiveDiff } from './history/archive-diff.js';
+import { checkBucketIntegrity } from './history/bucket-auditor.js';
+import { checkBucketStreams } from './history/bucket-stream-validator.js';
+import { checkHistoryGaps } from './history/gap-auditor.js';
+import {
+  auditQuorumSets,
+  formatQuorumSummaryTable,
+  simulateQuorumBft,
+} from './validators/quorum.js';
+import { checkSplitBrain } from './validators/split-brain-solver.js';
+import { checkDnsIntegrity } from './security/dns-integrity.js';
+import { checkHsts } from './security/hsts-auditor.js';
+import { checkImmutabilityClaims } from './security/immutability-auditor.js';
+import { checkSigningKeyRevocation } from './security/key-revocation.js';
+import { checkSigningKeyMultisig } from './security/multisig.js';
+import { checkMpcGovernance } from './security/mpc-governance.js';
+import { checkCertificateTransparencyFromDocument } from './security/ct-auditor.js';
+import { auditEmailDns } from './security/dmarc-auditor.js';
+import { auditCaa } from './security/caa-auditor.js';
+import { auditTlsForwardSecrecy } from './security/tls-pfs-auditor.js';
+import { checkValidatorDiversityFromDocument } from './validators/geo-diversity.js';
+import { validateAnchorDiscovery } from './validators/anchorDiscovery.js';
+import { checkOverlayPeers } from './overlay/crawler.js';
+import { checkOverlayHandshake } from './overlay/handshake.js';
+import { checkOverlayCipher } from './overlay/index.js';
+import { checkOverlayDos } from './overlay/dos-tester.js';
+import { checkOverlayTopology } from './overlay/topology-analyzer.js';
+import { checkValidatorDnsDiscovery } from './validators/dns-discovery.js';
+import { checkThresholdOptimizer } from './security/threshold-optimizer.js';
 import { allRules } from './rules/index.js';
+import { isUrl } from './predicates.js';
+import { PRESETS, resolvePreset, type PresetName } from './presets.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
 import {
   generateAnchorPlatformConfig,
   formatAnchorPlatformYaml,
 } from './generators/anchor-platform.js';
 import { generateOpenApiSpec } from './generators/openapi.js';
+import { formatJsonLd, generateJsonLd, validateJsonLd } from './generators/jsonld.js';
+import { generateDiagram, type GraphFormat } from './generators/diagram.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
-import { isUrl } from './predicates.js';
+import { runHealthCheck, formatHealthCheckTable } from './health-check.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { runRuleExplorerCli } from './ui/rule-explorer.js';
+import { loadPolicy, validatePolicy, evaluatePolicy } from './policy/engine.js';
+import { createFixtureFetch } from './mock-fixtures.js';
+import { runLspServer } from './lsp/server.js';
+import { startSmartWatch } from './watcher/smart-watch.js';
+import { getTomlJsonSchema } from './schema.js';
+import { generateCompletion, isCompletionShell } from './completion.js';
+import {
+  BACKUP_SUFFIX,
+  installHook,
+  isHookName,
+  uninstallHook,
+  type HookName,
+} from './cli/git-hooks.js';
+import { MonitorDaemon } from './monitor/daemon.js';
+import { SlaCalculator } from './monitor/sla-calculator.js';
+import {
+  collectMetrics,
+  DEFAULT_METRICS_PORT,
+  PrometheusMetricsServer,
+} from './telemetry/prometheus-server.js';
+import {
+  durationMetric,
+  instrumentedFetch,
+  OtelExporter,
+  otlpEndpointFor,
+  ruleSpanRecorder,
+  severityMetrics,
+} from './telemetry/otel-exporter.js';
+import type { OtelMetric } from './telemetry/otel-exporter.js';
+import { createMockServer, DEFAULT_MOCK_PORT, formatRoutingTable } from './mock/server.js';
+import {
+  runMigration,
+  dryRun as dryRunMigration,
+  generateDiff,
+  type MigrationTarget,
+} from './codemod/migrate.js';
+import { applyFixes } from './fix.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
+import { formatToml } from './format-file.js';
+import type { FormatResult } from './format-file.js';
+import { semanticHash } from './cst/semantic-hash.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit';
+type Format =
+  | 'text'
+  | 'summary'
+  | 'json'
+  | 'ndjson'
+  | 'sarif'
+  | 'github'
+  | 'junit'
+  | 'html'
+  | 'checkstyle'
+  | 'markdown'
+  | 'sonar'
+  | 'pr-comment';
 
 interface Cli {
+  exportAnchorTests?: string;
   noSuggestions?: boolean;
   paths: string[];
   domain?: string;
   format: Format;
+  formatFile: boolean;
+  semanticHash: boolean;
+  healthCheck?: boolean;
   strict: boolean;
+  watch?: boolean;
   color?: boolean;
   quiet: boolean;
+  count: boolean;
+  silentSuccess?: boolean;
   showHelp: boolean;
   rules: RuleOverrides;
+  preset?: PresetName;
   maxWarnings?: number;
+  failOn?: Severity;
   checkNetwork: boolean;
-  auditFees?: boolean;
-  verifyPostmessage?: boolean;
+  auditFees: boolean;
+  verifyPostmessage: boolean;
   postmessageUrl?: string;
+  checkIpv6?: boolean;
+  auditRouting?: boolean;
+  expectedAsns?: string[];
+  verifyDirectorySync?: boolean;
+  directoryFeeds?: string[];
+  auditQuorum: boolean;
+  auditDos?: boolean;
+  auditMultisig?: boolean;
+  crawlTopology?: boolean;
+  auditDiversity?: boolean;
+  followLinks: boolean;
+  verifySep10: boolean;
+  auditSecurity?: boolean;
+  verifySep6?: boolean;
+  verifySep31?: boolean;
+  verifySep8?: boolean;
+  verifySep38?: boolean;
+  verifySep24?: boolean;
+  verifySep12?: boolean;
+  verifySep12Deletion?: boolean;
+  verifySep30?: boolean;
+  verifySep24QuoteLock?: boolean;
+  verifyClawback?: boolean;
+  verifySep8Webhook?: boolean;
+  verifyIpfs?: boolean;
+  crawlPeers: boolean;
+  verifyDnssec: boolean;
+  verifyOverlay: boolean;
+  verifyBuckets: boolean;
+  verifyHistoryGaps: boolean;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -56,6 +257,37 @@ interface Cli {
   webhookSlack?: string;
   webhookDiscord?: string;
   interactive?: boolean;
+  exploreRules?: boolean;
+  checkContracts: boolean;
+  sorobanRpc?: string;
+  evmRpc?: string;
+  simulateSoroban?: boolean;
+  sorobanRentAudit?: boolean;
+  sorobanInstanceStorageAudit?: boolean;
+  graph?: GraphFormat;
+  contractGraph?: 'json' | 'mermaid';
+  graphIncludeContracts?: boolean;
+  graphIncludeValidators?: boolean;
+  graphColorByProtocol?: boolean;
+  policy?: string;
+  mockFixtures?: string;
+  lsp?: boolean;
+  installHook?: HookName;
+  uninstallHook?: HookName;
+  monitor?: boolean;
+  interval?: number;
+  webhookUrl?: string;
+  serveMetrics?: number;
+  otelEndpoint?: string;
+  otelServiceName?: string;
+  slaStore?: string;
+  generateJsonLd?: string;
+  migrate?: string;
+  dryRun?: boolean;
+  fix?: boolean;
+  serveMock?: number;
+  diff?: { base: string; target: string };
+  readiness?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -64,25 +296,105 @@ Validate a Stellar Info File (stellar.toml) against SEP-1 — offline.
 
 USAGE
   stellar-toml-lint [file...]            Lint local files (default: ./stellar.toml)
+  stellar-toml-lint "configs/**/*.toml"  Lint a glob — quote it so the shell
+                                         passes the pattern through instead of
+                                         expanding it (or failing to)
   stellar-toml-lint --domain <domain>    Fetch and lint https://<domain>/.well-known/stellar.toml
+  stellar-toml-lint --diff <base> <target>
+                                         Compare two versions for breaking changes
   cat stellar.toml | stellar-toml-lint - Lint stdin
+  stellar-toml-lint --format-file <file> Rewrite the file in canonical SEP-1 layout
+  stellar-toml-lint --semantic-hash <file>
+                                         Print a SHA-256 of the file's data that
+                                         ignores whitespace, comments, and key order
 
 OPTIONS
-  -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
-                          ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, or junit
+  -d, --domain <domain>   Domain serving the file. Enables CORS, content-type,
+                          image-asset and ORG_URL same-domain checks. Fetches
+                          unless files are given.
+  -f, --format <fmt>      text (default), summary (one line per file, for hooks
+                          and monitoring), json, ndjson, sarif, github, junit,
+                          html, checkstyle, markdown (for GitHub step
+                          summaries), sonar (SonarQube Generic Issue Data),
+                          or pr-comment (for the aggregate pull-request comment)
+      --format-file       Rewrite files in place: SEP-1 field order, consistent
+                          quoting, comments preserved. Distinct from --format
+                          (a reporter).
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
+      --fail-on <sev>     Exit 1 when any diagnostic meets or exceeds <sev>:
+                          error, warning, or info. Takes precedence over
+                          --strict
       --off <rule>        Disable a rule (repeatable)
       --error <rule>      Raise a rule to error (repeatable)
       --warn <rule>       Lower a rule to warning (repeatable)
+      --preset <name>     Start from a role's rule bundle: validator, anchor-sep24,
+                          or issuer (see PRESETS)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
+      --explore-rules     Fuzzy-search every rule, read its description and spec
+                          link, and preview --off/--warn/--error overrides. In
+                          a non-terminal it prints the rule catalogue and exits
+      --lsp               Run as a Language Server on stdio (diagnostics,
+                          quick-fix code actions, and SEP-1 hover docs)
   -q, --quiet             Report errors only
+      --count             Print only problem count totals
+      --silent-success    Print nothing on stdout when a run has no diagnostics,
+                          so a clean build stays silent; errors and warnings
+                          still print as usual. --quiet-success is an alias
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, and
-                          ANCHOR_QUOTE_SERVER against the network
+      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL,
+                          AUTH_SERVER, and ANCHOR_QUOTE_SERVER against the network,
+                          and each declared contract against the other networks
+      --health-check      Ping declared endpoint URLs to ensure they are live
+      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
+                          regulated issuer flags, TLS certificate expiry,
+                          history archive freshness, ANCHOR_QUOTE_SERVER,
+                          SDEX corridor routing, and bridge reserves against
+                          the network
+      --audit-quorum      With --check-network: solve the declared quorum sets
+                          ([[VALIDATORS]].QUORUM_SET or CONFIG_URL-linked
+                          stellar-core.cfg) for split-brain risk and fragile
+                          thresholds
+      --audit-multisig    With --check-network: compute exact minimal signer
+                          coalitions for low, medium, and high thresholds
+      --audit-dos         With --check-network: run ten sequential overlay
+                          connection attempts and verify graceful backoff
+      --crawl-topology    With --check-network: crawl GET_PEERS and report
+                          validator paths longer than three overlay hops
+      --audit-diversity   With --check-network: resolve validator hosts and flag
+                          ASN or geographic concentration (>33% in one bucket).
+                          Enrichment uses the JSON table in ANCHOR_GEO_LOOKUP
+      --check-ipv6        With --check-network: resolve AAAA records for the
+                          anchor domain and every service endpoint, and verify
+                          each IPv6 address accepts a TCP connection (for
+                          DNS64/NAT64 IPv6-only mobile networks)
+      --audit-routing     With --check-network: compare announced routes with
+                          public RPKI data from RIPEstat; repeat --expected-asn
+                          to flag unexpected origin ASNs
+      --expected-asn <asn> Expected BGP origin ASN for --audit-routing (repeatable)
+      --verify-directory-sync
+                          With --check-network: compare ecosystem directory
+                          listings with stellar.toml (ORG_NAME, ORG_URL,
+                          ACCOUNTS, and SEP-6/24/31/38 capability flags)
+      --directory-feed <url>
+                          Directory registry JSON endpoint to audit with
+                          --verify-directory-sync (repeatable; defaults to the
+                          Stellar Expert SEP-37 directory)
+      --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
+      --audit-security    Audit token binding and CAA policy for declared
+              service endpoints
+      --verify-sep6       Run end-to-end programmatic SEP-6 integration tester
+      --verify-sep31      Audit SEP-31 cross-border payment lifecycle and schema
+      --verify-sep8       Simulate SEP-8 regulated asset compliance approval server interaction
+      --verify-sep38      Audit SEP-38 quote coverage, bid-ask spread, and quote expirations
+      --verify-sep24      Audit SEP-24 hosted deposit/withdrawal flow against the transfer server
+      --verify-sep12      Audit SEP-12 KYC customer verification against the KYC server
+      --verify-sep12-deletion
+                          Verify SEP-12 DELETE /customer endpoint (GDPR right-to-be-forgotten)
+      --verify-sep24-quote-lock
+                          Audit SEP-24 interactive deposit fee quote stability across session
       --audit-fees        Compare fixed and percentage fees across stellar.toml,
                           SEP-6 /info, SEP-24 /info, and SEP-38 /prices
                           (implies --check-network)
@@ -92,6 +404,45 @@ OPTIONS
       --postmessage-url <url>
                           Interactive SEP-24 URL to inspect instead of creating
                           a test deposit session
+      --verify-clawback   Verify asset clawback authority (CAP-35) via Horizon and Soroban RPC
+      --verify-sep8-webhook
+                           Simulate SEP-8 regulated asset post-signing approval webhook
+      --verify-ipfs       Verify IPFS CID pointers, multihash integrity, and gateway reachability
+      --crawl-peers       Discover overlay peers with GET_PEERS and check connectivity
+      --verify-buckets    With --check-network: download a sample of the archive
+                          buckets a validator publishes, verify each against the
+                          SHA-256 in its name, and decode its XDR entries; also
+                          range-read random buckets to check gzip headers, CRC32
+                          trailers, and leading BucketEntry records
+      --verify-history-gaps
+                          With --check-network: confirm every 64-ledger checkpoint
+                          across the last 10,000 archived ledgers is downloadable
+      --verify-overlay    With --check-network: complete the overlay TCP handshake
+                          with each [[VALIDATORS]] HOST and check its network,
+                          node ID, and protocol version, then derive HKDF
+                          ChaCha20-Poly1305 session keys and verify one sealed
+                          frame exchange
+      --verify-dnssec     Compare A/AAAA answers across DNSSEC-validating DoH resolvers
+      --follow-links      Fetch and lint the toml pointers in CURRENCIES
+                          (implied by --domain)
+      --check-contracts   Verify that Soroban contracts are deployed on chain, that
+                          their WASM is not evicted, and that their TTL is live
+      --rpc-url <url>     Soroban RPC endpoint to use with --check-contracts
+                          (defaults from NETWORK_PASSPHRASE; alias --soroban-rpc)
+      --evm-rpc <url>     EVM JSON-RPC endpoint to use with --check-network for
+                          reading the reserves a bridge locks on its origin chain
+      --simulate-soroban  With --check-network: dry-run the SEP-41 read calls
+                          against the Soroban RPC without submitting a transaction
+      --soroban-rent-audit
+                          With --check-network: audit contract instance storage footprint,
+                          TTL expiration, and projected ledger rent costs
+      --soroban-instance-storage-audit
+                          With --check-network: audit Soroban contract instance storage key-value integrity
+      --mock-fixtures <dir>
+                          Serve network checks from recorded JSON responses under
+                          <dir> instead of the network. A URL with no fixture
+                          fails instead of making a request (hermetic CI)
+
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -99,20 +450,119 @@ OPTIONS
       --badge-svg <file>  Generate an SVG compliance badge
       --badge-json <file> Generate a Shields.io JSON endpoint
       --export-ap-config  Export Anchor Platform YAML config to stdout
-      --generate-openapi <file>
-                          Generate an OpenAPI 3.1 spec (json or yaml extension)
-      --color / --no-color
-      --list-rules        Print every rule and exit
-  -v, --version
-  -h, --help
+       --generate-openapi <file>
+                           Generate an OpenAPI 3.1 spec (json or yaml extension)
+       --generate-jsonld [out.json]
+                           Generate Schema.org JSON-LD (Organization,
+                           FinancialProduct/Currency) for search indexing;
+                           prints to stdout when no output file is given
+      --graph <fmt>       Generate architecture diagram: mermaid or dot
+      --graph-contracts   Include Soroban contracts in diagram
+      --contract-graph <fmt>
+                          Print the graph of which declared contract calls which:
+                          json or mermaid. Needs the Soroban RPC (--rpc-url or
+                          NETWORK_PASSPHRASE)
+      --graph-validators  Include validators in diagram
+      --graph-color       Color nodes by protocol type
+      --policy <file>     Evaluate enterprise policy file (JSON or YAML)
+       --json-schema       Print a JSON Schema (Draft 2020-12) for stellar.toml
+                           to stdout, for editor autocompletion via schema
+                           associations
+        --color / --no-color
+        --list-rules        Print every rule and exit
+        --completion <sh>   Print a shell completion script for bash, zsh, or fish
+                            (e.g. eval "$(stellar-toml-lint --completion zsh)")
+    -v, --version
+    -h, --help
+        --migrate <target>  Run a code migration: sep41 or v2
+        --fix               Apply safe autofixes to files
+        --dry-run           Preview autofix or migration diff without modifying files
+       --monitor           Start a polling daemon that watches a URL or local
+                           file for changes
+       --interval <ms>     Polling interval in milliseconds (default 300)
+       --on-change-webhook <url>
+                           POST a JSON diff payload to a webhook when the
+                           monitored URL changes
+       --serve-metrics [port]
+                           Serve Prometheus metrics on /metrics
+                           (text/plain; version=0.0.4), covering the
+                           compliance score, rule violations, TLS certificate
+                           expiry countdowns, and validator status (default
+                           port 9464). Works with --monitor or on its own
+       --sla-store <file>  Record probe latency, status codes, and errors into
+                           a JSON SLA database while --monitor runs, and flag
+                           a 30-day availability below 99.5%
+       --otel-endpoint <url>
+                           Export OTLP/HTTP JSON traces and metrics to an
+                           OpenTelemetry collector after the run — the run
+                           duration, one span per rule, one client span per
+                           network probe, plus stellar_toml_lint_errors_total,
+                           _warnings_total, _infos_total and
+                           _duration_seconds. Give the collector's HTTP
+                           receiver (http://localhost:4318); a grpc:// URL is
+                           rejected. A collector that is down prints a warning
+                           and never changes the exit code
+       --otel-service-name <name>
+                           service.name reported to the collector (default
+                           stellar-toml-lint). Use your team or app name so the
+                           run is findable among the other jobs in the pipeline
+       --serve-mock [port] Serve the file plus mock SEP-10 /auth, SEP-24 /info,
+                           and SEP-38 /info and /prices endpoints on localhost
+                           (default port 8080). Set
+                           STELLAR_TOML_MOCK_SIGNING_SECRET to sign challenges
+                           with SIGNING_KEY
+
+CONFIG
+  .stellartomlrc.json    Project defaults, discovered upward from the linted
+                         file's directory (from the current directory for stdin
+                         and --domain), stopping at the filesystem root.
+                         Recognises "rules", "strict", and "maxWarnings".
+                         CLI flags always override the file; a malformed config
+                         or an unknown rule id exits with code 2.
+
+PRESETS
+  --preset <name>        Apply a role's rule bundle before anything else, so a
+                         team that is only half an ecosystem does not have to
+                         copy a long --off chain into every workflow:
+
+    validator            [[VALIDATORS]] and general file checks stay on; the
+                         currency issuance and anchor service rules are off.
+                         Duplicate validator hosts and aliases fail the build.
+    anchor-sep24         SEP-24, SEP-10, and currency requirements at error
+                         (a transfer server with no [[CURRENCIES]], an
+                         incomplete SEP-45 pair, an undescribed anchored
+                         asset). Validator rules are off — an anchor runs no
+                         validator nodes.
+    issuer               Currency, collateral, and documentation completeness
+                         at error. Anchor service rules are off — a standalone
+                         issuer runs no servers.
+
+                         A preset is a baseline, not a policy: an explicit
+                         --off, --warn, or --error on the same command line
+                         still wins, whatever order the flags appear in. For the
+                         same reason a preset overrides .stellartomlrc.json.
+                         An unknown name lists the available presets and exits
+                         with code 2.
 
 EXIT CODES
-  0  no errors            1  errors found            2  bad usage or I/O failure
+  0  no errors     1  errors found, or a --fail-on threshold met
+  2  bad usage, unmatched glob, or I/O failure
 
 EXAMPLES
   stellar-toml-lint public/.well-known/stellar.toml
+  stellar-toml-lint "accounts/*/stellar.toml"
   stellar-toml-lint --domain example.com --strict
+  stellar-toml-lint --preset validator public/.well-known/stellar.toml
+  stellar-toml-lint -f summary "accounts/*/stellar.toml"
   stellar-toml-lint -f sarif > results.sarif
+  stellar-toml-lint public/.well-known/stellar.toml --readiness
+  stellar-toml-lint public/.well-known/stellar.toml --readiness -f json
+  stellar-toml-lint public/.well-known/stellar.toml --check-network \\\
+  stellar-toml-lint --graph mermaid > diagram.mmd
+  stellar-toml-lint --graph dot --graph-contracts > diagram.dot
+  stellar-toml-lint --policy policy.yaml public/.well-known/stellar.toml
+  stellar-toml-lint public/.well-known/stellar.toml --check-network \\\\
+    --mock-fixtures ./test/fixtures/network
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -126,166 +576,1243 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  const color = cli.color ?? shouldUseColor();
-  const results: { name: string; result: LintResult }[] = [];
+  if (cli.installHook !== undefined || cli.uninstallHook !== undefined) {
+    return runHookCommand(cli);
+  }
 
-  try {
-    if (cli.domain && cli.paths.length === 0) {
-      let result = await lintDomain(cli.domain, {
-        strict: cli.strict,
-        rules: cli.rules,
-        checkNetwork: cli.checkNetwork,
-      });
-      result = await applyNetworkChecks(result, cli);
-      results.push({ name: cli.domain, result });
-    } else {
+  if (cli.formatFile) return formatFiles(cli);
+  if (cli.semanticHash) return printSemanticHashes(cli);
+
+  // The explorer is about rules, not about a file, so it runs before any path
+  // is read and needs no file argument.
+  if (cli.exploreRules) {
+    return runRuleExplorerCli(allRules, { stdin: process.stdin, stdout: process.stdout });
+  }
+
+  // Readiness draws its own report, so it only has a text and a JSON form.
+  if (cli.readiness && cli.format !== 'text' && cli.format !== 'json') {
+    process.stderr.write(
+      `--readiness supports --format text or --format json; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
+    );
+    return 2;
+  }
+
+  const color = cli.color ?? shouldUseColor();
+
+  const runLint = async (cli: Cli, color: boolean): Promise<number> => {
+    if (cli.lsp) {
+      // The framed stdio server: diagnostics, quick fixes, and hover. It used to
+      // be `lspMain()`, which registered a stdin listener and then let `main()`
+      // fall through to `process.exit` — so `--lsp` printed nothing and exited
+      // before a client could send a single message.
+      await runLspServer();
+      return 0;
+    }
+
+    const results: { name: string; result: LintResult }[] = [];
+    // Each linted file's contract error catalogues, kept for the text report.
+    const catalogues: ContractErrorCatalogue[] = [];
+    // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
+    let strict = cli.strict;
+    let maxWarnings = cli.maxWarnings;
+    const transport = cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
+    // OTel, when a collector is configured. One exporter and one tracer for the
+    // whole process: the rule spans, the HTTP spans and the metrics then share a
+    // trace id, which is the point of sending them at all.
+    const otel =
+      cli.otelEndpoint === undefined
+        ? undefined
+        : new OtelExporter({
+            endpoint: cli.otelEndpoint,
+            ...(cli.otelServiceName === undefined ? {} : { serviceName: cli.otelServiceName }),
+            scopeVersion: VERSION,
+          });
+    const otelTracer = otel?.tracer();
+    const fetchImpl =
+      otelTracer === undefined ? transport : instrumentedFetch(transport, otelTracer);
+    // Passed into `lint`/`lintDomain` as their rule hook, so per-rule durations
+    // come from the loop that actually runs the rules rather than a guess.
+    const otelRuleHook =
+      otelTracer === undefined ? {} : { instrumentRule: ruleSpanRecorder(otelTracer) };
+
+    try {
+      if (cli.diff) {
+        const baseSource = await readFile(cli.diff.base, 'utf8');
+        const targetSource = await readFile(cli.diff.target, 'utf8');
+        const differences = compareToml(baseSource, targetSource);
+        process.stdout.write(formatDiff(differences, cli.diff, { color }));
+        return hasBreakingChanges(differences) ? 1 : 0;
+      }
+
+      if (cli.domain && cli.paths.length === 0) {
+        const config = await loadConfig(process.cwd());
+        strict = strict || config.strict;
+        maxWarnings ??= config.maxWarnings;
+        const rules = { ...config.rules, ...cli.rules };
+        let domainResult = await lintDomain(
+          cli.domain,
+          {
+            strict,
+            rules,
+            checkNetwork: cli.checkNetwork,
+            followLinks: true,
+            ...otelRuleHook,
+          },
+          fetchImpl,
+        );
+        if (domainResult.parsed && cli.checkNetwork) {
+          const networkDiagnostics: Diagnostic[] = [
+            ...(cli.mockFixtures === undefined
+              ? await auditEmailDns(domainResult.parsed, { rules })
+              : []),
+            ...(await checkHistoryPublish(domainResult.parsed, fetchImpl, { rules })),
+            ...(await checkArchiveDiff(domainResult.parsed, fetchImpl, { rules })),
+            ...(cli.verifyBuckets
+              ? await checkBucketIntegrity(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifyBuckets
+              ? await checkBucketStreams(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifyHistoryGaps
+              ? await checkHistoryGaps(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.auditQuorum || cli.auditSecurity
+              ? await auditQuorumSets(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.auditQuorum
+              ? await checkSplitBrain(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifyDnssec
+              ? await checkDnsIntegrity(domainResult.parsed, fetchImpl, {
+                  rules,
+                  domain: cli.domain,
+                })
+              : []),
+            ...(cli.auditSecurity
+              ? await checkTokenBinding(domainResult.parsed, fetchImpl, {
+                  rules,
+                  domain: cli.domain,
+                })
+              : []),
+            ...(cli.auditSecurity && cli.mockFixtures === undefined
+              ? await auditCaa(domainResult.parsed, { rules, domain: cli.domain })
+              : []),
+            ...(await checkSigningKeyRevocation(domainResult.parsed, { rules, fetchImpl })),
+            ...(await checkSigningKeyMultisig(domainResult.parsed, { rules, fetchImpl })),
+            ...(await checkMpcGovernance(domainResult.parsed, { rules, fetchImpl })),
+            ...(await checkImmutabilityClaims(domainResult.parsed, fetchImpl, { rules })),
+            ...(await checkCertificateTransparencyFromDocument(domainResult.parsed, {
+              rules,
+              fetchImpl,
+            })),
+            ...(cli.auditDiversity && cli.mockFixtures === undefined
+              ? await checkValidatorDiversityFromDocument(domainResult.parsed, { rules })
+              : []),
+            // Offline signer/threshold analysis (only fires for documents that
+            // declare a SIGNERS/THRESHOLDS block).
+            ...checkSignatureStateMachineFromDocument(domainResult.parsed, { rules }),
+            ...(cli.mockFixtures === undefined
+              ? await checkRateLimitResilience({
+                  rules,
+                  horizonUrl: horizonUrlFor(
+                    typeof domainResult.parsed.NETWORK_PASSPHRASE === 'string'
+                      ? domainResult.parsed.NETWORK_PASSPHRASE
+                      : undefined,
+                  ),
+                  fetchImpl,
+                })
+              : []),
+            ...(cli.verifySep6
+              ? await verifySep6Integration(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifySep31
+              ? await verifySep31(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            // The webhook listener opens a local socket and waits for a real
+            // callback, so a hermetic fixture run skips it.
+            ...(cli.verifySep31 && cli.mockFixtures === undefined
+              ? await verifySep31Webhooks(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifySep30 && domainResult.parsed?.RECOVERY_SERVER !== undefined
+              ? await verifySep30(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifySep8 ? await verifySep8(domainResult.parsed, fetchImpl, { rules }) : []),
+            ...(cli.verifySep8Webhook
+              ? await verifySep8Webhook(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifyIpfs
+              ? await validateIpfsMetadata(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifySep38
+              ? await verifySep38(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.auditFees
+              ? await checkCrossSepFees(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifySep24
+              ? await verifySep24(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifyPostmessage
+              ? await checkSep24PostMessage(domainResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.postmessageUrl !== undefined
+                    ? { url: cli.postmessageUrl }
+                    : {}),
+                })
+              : []),
+            ...(cli.verifySep12Deletion && cli.checkNetwork
+              ? await verifySep12Deletion(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifySep24QuoteLock && cli.checkNetwork
+              ? await verifySep24QuoteLock(domainResult.parsed, fetchImpl, { rules })
+              : []),
+            ...(cli.verifyClawback && cli.checkNetwork
+              ? await simulateClawback(domainResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })
+              : []),
+            ...(cli.crawlPeers && cli.mockFixtures === undefined
+              ? await checkOverlayPeers(domainResult.parsed, { rules })
+              : []),
+            ...(cli.crawlTopology && cli.mockFixtures === undefined
+              ? await checkOverlayTopology(domainResult.parsed, { rules })
+              : []),
+            ...(cli.auditDos && cli.mockFixtures === undefined
+              ? await checkOverlayDos(domainResult.parsed, { rules })
+              : []),
+            ...(cli.mockFixtures === undefined
+              ? await checkValidatorDnsDiscovery(domainResult.parsed, { rules })
+              : []),
+            ...(cli.auditMultisig
+              ? await checkThresholdOptimizer(domainResult.parsed, { rules, fetchImpl })
+              : []),
+            ...(await checkNetworkConsistency(domainResult.parsed, fetchImpl, { rules })),
+            // The handshake dials each peer directly, so a hermetic run skips it.
+            ...(cli.verifyOverlay && cli.mockFixtures === undefined
+              ? await checkOverlayHandshake(domainResult.parsed, { rules })
+              : []),
+            ...(cli.verifyOverlay && cli.mockFixtures === undefined
+              ? await checkOverlayCipher(domainResult.parsed, { rules })
+              : []),
+            // A certificate probe opens its own socket rather than going
+            // through the fixture transport, so hermetic runs skip it.
+            ...(cli.mockFixtures === undefined
+              ? await checkCertExpiry(domainResult.parsed, { rules })
+              : []),
+            ...(await checkHsts(domainResult.parsed, fetchImpl, { rules })),
+            // The ALPN probe opens its own TLS socket for the same reason.
+            ...(cli.mockFixtures === undefined
+              ? await auditHttpVersions(domainResult.parsed, { rules, domain: cli.domain })
+              : []),
+            ...(cli.mockFixtures === undefined
+              ? await auditTlsForwardSecrecy(domainResult.parsed, { rules, domain: cli.domain })
+              : []),
+            // The peer-port probe dials raw TCP for the same reason.
+            ...(cli.mockFixtures === undefined
+              ? await checkPeerPortReachability(domainResult.parsed, { rules })
+              : []),
+            // DNS + raw IPv6 sockets, outside the fixture transport.
+            ...(cli.checkIpv6 && cli.mockFixtures === undefined
+              ? await auditIpv6Reachability(domainResult.parsed, { rules, domain: cli.domain })
+              : []),
+            ...(cli.auditRouting && cli.mockFixtures === undefined
+              ? await auditBgpRoutes(domainResult.parsed, {
+                  rules,
+                  domain: cli.domain,
+                  fetchImpl,
+                  expectedAsns: cli.expectedAsns,
+                })
+              : []),
+            ...(cli.verifyDirectorySync
+              ? await validateAnchorDiscovery(domainResult.parsed, {
+                  rules,
+                  fetchImpl,
+                  domain: cli.domain,
+                  ...(cli.directoryFeeds === undefined
+                    ? {}
+                    : {
+                        directories: cli.directoryFeeds.map((url) => ({ name: url, url })),
+                      }),
+                })
+              : []),
+            ...(await auditTomlContractEnvMeta(domainResult.parsed, fetchImpl, {
+              rules,
+              ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+            })),
+            ...(await auditTomlContractEvents(domainResult.parsed, fetchImpl, {
+              rules,
+              ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+            })),
+            ...(await auditTomlContractAdmins(domainResult.parsed, fetchImpl, {
+              rules,
+              ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+            })),
+            ...(await auditTomlContractAuth(domainResult.parsed, fetchImpl, {
+              rules,
+              ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+            })),
+            ...(cli.simulateSoroban
+              ? await auditTomlContractSimulation(domainResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })
+              : []),
+            ...(cli.sorobanRentAudit
+              ? await auditTomlStorageFootprint(domainResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })
+              : []),
+            ...(cli.sorobanInstanceStorageAudit
+              ? await auditTomlInstanceStorage(domainResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })
+              : []),
+          ];
+          // Audit on-chain account data entries for SIGNING_KEY and ACCOUNTS (domain path)
+          const domainTomlSource = await (
+            await fetchImpl(`https://${cli.domain}/.well-known/stellar.toml`)
+          ).text();
+          networkDiagnostics.push(
+            ...(await auditTomlAccountData(domainResult.parsed, domainTomlSource, fetchImpl, {
+              rules,
+              domain: cli.domain,
+            })),
+          );
+          if (networkDiagnostics.length > 0) {
+            domainResult = finalize(
+              [...domainResult.diagnostics, ...networkDiagnostics],
+              { strict },
+              domainResult.parsed,
+            );
+          }
+        }
+        results.push({ name: cli.domain, result: domainResult });
+      } else {
+        const paths = await expandInputs(cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH]);
+
+        if (cli.fix && cli.dryRun) {
+          for (const path of paths) {
+            const config = await loadConfig(path === '-' ? process.cwd() : dirname(resolve(path)));
+            const rules = { ...config.rules, ...cli.rules };
+            const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
+            const fileResult = lint(source, { rules });
+            const fixed = applyFixes(source, fileResult.diagnostics);
+            if (fixed !== source) {
+              const diff = generateDiff(source, fixed, path === '-' ? 'stdin' : path);
+              process.stdout.write(diff);
+            }
+          }
+          return 0;
+        }
+
+        for (const path of paths) {
+          const config = await loadConfig(path === '-' ? process.cwd() : dirname(resolve(path)));
+          const fileStrict = cli.strict || config.strict;
+          strict = strict || config.strict;
+          maxWarnings ??= config.maxWarnings;
+          const rules = { ...config.rules, ...cli.rules };
+
+          let source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
+
+          if (cli.fix && path !== '-') {
+            const preResult = lint(source, { rules });
+            const fixed = applyFixes(source, preResult.diagnostics);
+            if (fixed !== source) {
+              await writeFile(path, fixed, 'utf8');
+              source = fixed;
+            }
+          }
+
+          let fileResult = lint(source, {
+            strict: fileStrict,
+            rules,
+            checkNetwork: cli.checkNetwork,
+            ...(cli.domain ? { domain: cli.domain } : {}),
+            ...otelRuleHook,
+          });
+
+          if (
+            fileResult.parsed &&
+            (cli.checkNetwork || cli.checkContracts || cli.followLinks || cli.domain !== undefined)
+          ) {
+            const networkDiagnostics: Diagnostic[] = [];
+
+            // SEP-6 is reachable under either flag: `--domain` already means the
+            // file was fetched from a live host, and `--check-network` is the
+            // explicit opt-in for a local file.
+            if (cli.checkNetwork || cli.domain !== undefined) {
+              networkDiagnostics.push(
+                ...(await checkHistoryArchive(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkSep6(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep10 && cli.checkNetwork) {
+              const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+                .WEB_AUTH_ENDPOINT;
+              if (typeof webAuthEndpoint === 'string') {
+                const signingKey =
+                  typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                    ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                    : '';
+                networkDiagnostics.push(
+                  ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                    rules,
+                    fetchImpl,
+                  })),
+                );
+              }
+            }
+
+            if (cli.auditSecurity && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await checkTokenBinding(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                })),
+                ...(await checkSigningKeyRevocation(fileResult.parsed, { rules, fetchImpl })),
+                ...(await checkSigningKeyMultisig(fileResult.parsed, { rules, fetchImpl })),
+                ...(cli.mockFixtures === undefined
+                  ? await auditCaa(fileResult.parsed, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                    })
+                  : []),
+                ...(cli.auditDiversity && cli.mockFixtures === undefined
+                  ? await checkValidatorDiversityFromDocument(fileResult.parsed, { rules })
+                  : []),
+              );
+            }
+
+            if (cli.auditMultisig && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await checkThresholdOptimizer(fileResult.parsed, { rules, fetchImpl })),
+              );
+            }
+
+            if (cli.verifySep6 && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep6Integration(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep31 && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep31(fileResult.parsed, fetchImpl, { rules })),
+                // Opens a loopback listener for the callback, so hermetic
+                // fixture runs skip it.
+                ...(cli.mockFixtures === undefined
+                  ? await verifySep31Webhooks(fileResult.parsed, fetchImpl, { rules })
+                  : []),
+              );
+            }
+
+            if (
+              cli.verifySep30 &&
+              cli.checkNetwork &&
+              fileResult.parsed?.RECOVERY_SERVER !== undefined
+            ) {
+              networkDiagnostics.push(
+                ...(await verifySep30(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep8 && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep8(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep8Webhook && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep8Webhook(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifyIpfs && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await validateIpfsMetadata(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep38 && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep38(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.auditFees && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await checkCrossSepFees(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep24 && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep24(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifyPostmessage && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await checkSep24PostMessage(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.postmessageUrl !== undefined
+                    ? { url: cli.postmessageUrl }
+                    : {}),
+                })),
+              );
+            }
+
+            if (cli.verifySep12 && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep12(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep12Deletion && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep12Deletion(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifySep24QuoteLock && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await verifySep24QuoteLock(fileResult.parsed, fetchImpl, { rules })),
+              );
+            }
+
+            if (cli.verifyClawback && cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await simulateClawback(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+              );
+            }
+            if (cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(cli.mockFixtures === undefined
+                  ? await auditEmailDns(fileResult.parsed, { rules })
+                  : []),
+                ...(cli.mockFixtures === undefined
+                  ? await auditTlsForwardSecrecy(fileResult.parsed, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                    })
+                  : []),
+                ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
+                ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkSep3Auth(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+
+                ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkSep38(fileResult.parsed, fetchImpl, { rules })),
+
+                ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
+                  rules,
+                })),
+                ...(await checkFixedSupplyIssuerLocks(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkImmutabilityClaims(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkCorsPreflight(fileResult.parsed, fetchImpl, { rules })),
+                // Opens its own sockets, outside the fixture transport.
+                ...(cli.mockFixtures === undefined
+                  ? await checkCertExpiry(fileResult.parsed, { rules })
+                  : []),
+                ...(await checkHsts(fileResult.parsed, fetchImpl, { rules })),
+                // TLS ALPN probe, outside the fixture transport.
+                ...(cli.mockFixtures === undefined
+                  ? await auditHttpVersions(fileResult.parsed, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                    })
+                  : []),
+                ...(cli.mockFixtures === undefined
+                  ? await checkPeerPortReachability(fileResult.parsed, { rules })
+                  : []),
+                // DNS + raw IPv6 sockets, outside the fixture transport.
+                ...(cli.checkIpv6 && cli.mockFixtures === undefined
+                  ? await auditIpv6Reachability(fileResult.parsed, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                    })
+                  : []),
+                ...(cli.auditRouting && cli.mockFixtures === undefined
+                  ? await auditBgpRoutes(fileResult.parsed, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                      fetchImpl,
+                      expectedAsns: cli.expectedAsns,
+                    })
+                  : []),
+                ...(cli.verifyDirectorySync
+                  ? await validateAnchorDiscovery(fileResult.parsed, {
+                      rules,
+                      fetchImpl,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                      ...(cli.directoryFeeds === undefined
+                        ? {}
+                        : {
+                            directories: cli.directoryFeeds.map((url) => ({ name: url, url })),
+                          }),
+                    })
+                  : []),
+                ...(await checkHistoryPublish(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkArchiveDiff(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkMpcGovernance(fileResult.parsed, { rules, fetchImpl })),
+                ...(cli.verifyBuckets
+                  ? await checkBucketIntegrity(fileResult.parsed, fetchImpl, { rules })
+                  : []),
+                ...(cli.verifyBuckets
+                  ? await checkBucketStreams(fileResult.parsed, fetchImpl, { rules })
+                  : []),
+                ...(cli.verifyHistoryGaps
+                  ? await checkHistoryGaps(fileResult.parsed, fetchImpl, { rules })
+                  : []),
+                ...(cli.auditQuorum || cli.auditSecurity
+                  ? await auditQuorumSets(fileResult.parsed, fetchImpl, { rules })
+                  : []),
+                ...(cli.auditQuorum
+                  ? await checkSplitBrain(fileResult.parsed, fetchImpl, { rules })
+                  : []),
+                ...(cli.verifyDnssec
+                  ? await checkDnsIntegrity(fileResult.parsed, fetchImpl, {
+                      rules,
+                      ...(cli.domain === undefined ? {} : { domain: cli.domain }),
+                    })
+                  : []),
+                // Offline signer/threshold analysis (see the domain path above).
+                ...checkSignatureStateMachineFromDocument(fileResult.parsed, { rules }),
+                ...(cli.mockFixtures === undefined
+                  ? await checkRateLimitResilience({
+                      rules,
+                      horizonUrl: horizonUrlFor(
+                        typeof fileResult.parsed.NETWORK_PASSPHRASE === 'string'
+                          ? fileResult.parsed.NETWORK_PASSPHRASE
+                          : undefined,
+                      ),
+                      fetchImpl,
+                    })
+                  : []),
+                ...(cli.crawlPeers && cli.mockFixtures === undefined
+                  ? await checkOverlayPeers(fileResult.parsed, { rules })
+                  : []),
+                ...(cli.crawlTopology && cli.mockFixtures === undefined
+                  ? await checkOverlayTopology(fileResult.parsed, { rules })
+                  : []),
+                ...(cli.auditDos && cli.mockFixtures === undefined
+                  ? await checkOverlayDos(fileResult.parsed, { rules })
+                  : []),
+                ...(cli.mockFixtures === undefined
+                  ? await checkValidatorDnsDiscovery(fileResult.parsed, { rules })
+                  : []),
+                ...(await auditTomlContractEnvMeta(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+                ...(await auditTomlContractEvents(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+                ...(await auditTomlContractAdmins(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+                ...(await auditTomlContractAuth(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+                ...(cli.simulateSoroban
+                  ? await auditTomlContractSimulation(fileResult.parsed, fetchImpl, {
+                      rules,
+                      ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                    })
+                  : []),
+                ...(cli.sorobanRentAudit
+                  ? await auditTomlStorageFootprint(fileResult.parsed, fetchImpl, {
+                      rules,
+                      ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                    })
+                  : []),
+                ...(cli.sorobanInstanceStorageAudit
+                  ? await auditTomlInstanceStorage(fileResult.parsed, fetchImpl, {
+                      rules,
+                      ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                    })
+                  : []),
+                ...(await checkNetworkConsistency(fileResult.parsed, fetchImpl, { rules })),
+                // Dials each peer directly, outside the fixture transport.
+                ...(cli.verifyOverlay && cli.mockFixtures === undefined
+                  ? await checkOverlayHandshake(fileResult.parsed, { rules })
+                  : []),
+                ...(cli.verifyOverlay && cli.mockFixtures === undefined
+                  ? await checkOverlayCipher(fileResult.parsed, { rules })
+                  : []),
+                // SDEX corridors, history archives, and bridge reserves all
+                // target the network the file declares.
+                ...(await checkCorridorRouting(fileResult.parsed, fetchImpl, {
+                  rules,
+                  horizonUrl: horizonUrlFor(
+                    typeof fileResult.parsed.NETWORK_PASSPHRASE === 'string'
+                      ? fileResult.parsed.NETWORK_PASSPHRASE
+                      : undefined,
+                  ),
+                })),
+                ...(await checkHistoryArchives(fileResult.parsed, fetchImpl, { rules })),
+                ...(await checkBridgeReserves(fileResult.parsed, fetchImpl, {
+                  rules,
+                  horizonUrl: horizonUrlFor(
+                    typeof fileResult.parsed.NETWORK_PASSPHRASE === 'string'
+                      ? fileResult.parsed.NETWORK_PASSPHRASE
+                      : undefined,
+                  ),
+                  ...(cli.evmRpc !== undefined ? { evmRpcUrl: cli.evmRpc } : {}),
+                })),
+              );
+            }
+
+            if (cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await checkCollateralGovernance(fileResult.parsed, {
+                  rules,
+                  fetchImpl,
+                })),
+              );
+            }
+
+            if (cli.checkNetwork && fileResult.parsed) {
+              // Audit on-chain account data entries for SIGNING_KEY and ACCOUNTS
+              const tomlSource = path === '-' ? await readStdin() : await readFile(path, 'utf8');
+              networkDiagnostics.push(
+                ...(await auditTomlAccountData(fileResult.parsed, tomlSource, fetchImpl, {
+                  rules,
+                  domain: cli.domain,
+                })),
+              );
+            }
+
+            if (cli.followLinks) {
+              networkDiagnostics.push(
+                ...(await followTomlPointers(
+                  fileResult.parsed,
+                  { strict: fileStrict, rules, domain: cli.domain },
+                  fetchImpl,
+                )),
+              );
+            }
+
+            if (cli.checkContracts) {
+              const audit = await checkContractErrorCatalogues(fileResult.parsed, fetchImpl, {
+                rules,
+                ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+              });
+              catalogues.push(...audit.catalogues);
+
+              networkDiagnostics.push(
+                ...(await checkContracts(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+                ...audit.diagnostics,
+                ...(await checkContractDependencies(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+                ...(await checkContractMetadata(fileResult.parsed, fetchImpl, {
+                  rules,
+                  ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+                })),
+              );
+            }
+
+            if (networkDiagnostics.length > 0) {
+              fileResult = finalize(
+                [...fileResult.diagnostics, ...networkDiagnostics],
+                { strict: fileStrict },
+                fileResult.parsed,
+              );
+            }
+          }
+
+          results.push({
+            name: path === '-' ? 'stdin' : path,
+            result: fileResult,
+          });
+        }
+      }
+    } catch (error) {
+      process.stderr.write(`${message(error)}\n`);
+      return 2;
+    }
+
+    // Code migration: run before reporting
+    if (cli.migrate) {
+      const target = cli.migrate as MigrationTarget;
       const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
       for (const path of paths) {
-        const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
-        let fileResult = lint(source, {
-          strict: cli.strict,
-          rules: cli.rules,
-          checkNetwork: cli.checkNetwork,
-          ...(cli.domain ? { domain: cli.domain } : {}),
-        });
-
-        fileResult = await applyNetworkChecks(fileResult, cli);
-
-        results.push({
-          name: path === '-' ? 'stdin' : path,
-          result: fileResult,
-        });
+        const filePath = path === '-' ? DEFAULT_PATH : path;
+        try {
+          const source = await readFile(filePath, 'utf8');
+          const { diagnostics: migrationDiagnostics, result: migrationResult } = await runMigration(
+            source,
+            target,
+            fetchImpl,
+          );
+          if (!cli.dryRun && migrationResult.applied) {
+            await writeFile(filePath, migrationResult.source);
+          }
+          const diffOutput = await dryRunMigration(source, target, fetchImpl, filePath);
+          process.stdout.write(diffOutput);
+          for (const diag of migrationDiagnostics) {
+            process.stderr.write(`${diag.rule}: ${diag.message}\n`);
+          }
+        } catch (error) {
+          process.stderr.write(`Migration failed for ${filePath}: ${(error as Error).message}\n`);
+        }
       }
     }
-  } catch (error) {
-    process.stderr.write(`${message(error)}\n`);
-    return 2;
-  }
 
-  const firstResult = results[0]?.result;
+    const firstResult = results[0]?.result;
 
-  if (cli.badgeSvg && firstResult) {
-    await writeFile(cli.badgeSvg, generateBadgeSvg(firstResult));
-  }
-  if (cli.badgeJson && firstResult) {
-    await writeFile(
-      cli.badgeJson,
-      JSON.stringify(generateShieldsEndpoint(firstResult), null, 2) + '\n',
-    );
-  }
-  if (cli.exportApConfig && firstResult?.parsed) {
-    const config = generateAnchorPlatformConfig(firstResult.parsed);
-    process.stdout.write(formatAnchorPlatformYaml(config));
-  }
-  if (cli.generateOpenapi && firstResult?.parsed) {
-    const spec = generateOpenApiSpec(firstResult.parsed);
-    const ext =
-      cli.generateOpenapi.endsWith('.yaml') || cli.generateOpenapi.endsWith('.yml')
-        ? 'yaml'
-        : 'json';
-    if (ext === 'yaml') {
-      const yamlLines: string[] = [];
-      yamlLines.push(`openapi: "${spec.openapi}"`);
-      yamlLines.push(`info:`);
-      yamlLines.push(`  title: "${spec.info.title}"`);
-      yamlLines.push(`  version: "${spec.info.version}"`);
-      yamlLines.push(`  description: "${spec.info.description}"`);
-      await writeFile(cli.generateOpenapi, yamlLines.join('\n') + '\n');
-    } else {
-      await writeFile(cli.generateOpenapi, JSON.stringify(spec, null, 2) + '\n');
+    if (cli.badgeSvg && firstResult) {
+      await writeFile(cli.badgeSvg, generateBadgeSvg(firstResult));
     }
-  }
-
-  if (cli.interactive && cli.format !== 'text') {
-    process.stderr.write(
-      `--interactive draws its own view of the findings; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
-    );
-    return 2;
-  }
-
-  // A dashboard written into a pipe or a file would corrupt the output it is
-  // meant to replace, so anything that is not a terminal keeps the text report.
-  const dashboard = cli.interactive === true && supportsDashboard(process.stdout);
-
-  if (!cli.exportApConfig && dashboard) {
-    await runDashboard(
-      results,
-      { stdin: process.stdin, stdout: process.stdout },
-      { color, ...(cli.quiet ? { filter: 'error' as const } : {}) },
-    );
-  } else if (!cli.exportApConfig) {
-    for (const { name, result } of results) {
-      const filtered = cli.quiet
-        ? { ...result, diagnostics: result.diagnostics.filter((d) => d.severity === 'error') }
-        : result;
-
-      process.stdout.write(render(filtered, name, cli, color));
-    }
-  }
-
-  if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
-    const deliveries = await deliverWebhooks(results, {
-      ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
-      ...(cli.webhookDiscord !== undefined ? { discord: cli.webhookDiscord } : {}),
-    });
-
-    for (const delivery of deliveries) {
-      if (delivery.ok) continue;
-      // The exit code stays tied to the diagnostics: a broken alert endpoint
-      // must not turn a clean file into a failing build.
-      process.stderr.write(
-        `Warning: ${delivery.channel} webhook failed after ${delivery.attempts} attempt(s)${
-          delivery.error === undefined ? '' : `: ${delivery.error}`
-        }\n`,
+    if (cli.badgeJson && firstResult) {
+      await writeFile(
+        cli.badgeJson,
+        JSON.stringify(generateShieldsEndpoint(firstResult), null, 2) + '\n',
       );
     }
-  }
+    if (cli.exportApConfig && firstResult?.parsed) {
+      const config = generateAnchorPlatformConfig(firstResult.parsed);
+      process.stdout.write(formatAnchorPlatformYaml(config));
+    }
+    if (cli.generateOpenapi && firstResult?.parsed) {
+      const spec = generateOpenApiSpec(firstResult.parsed);
+      const ext =
+        cli.generateOpenapi.endsWith('.yaml') || cli.generateOpenapi.endsWith('.yml')
+          ? 'yaml'
+          : 'json';
+      if (ext === 'yaml') {
+        const yamlLines: string[] = [];
+        yamlLines.push(`openapi: "${spec.openapi}"`);
+        yamlLines.push(`info:`);
+        yamlLines.push(`  title: "${spec.info.title}"`);
+        yamlLines.push(`  version: "${spec.info.version}"`);
+        yamlLines.push(`  description: "${spec.info.description}"`);
+        await writeFile(cli.generateOpenapi, yamlLines.join('\n') + '\n');
+      } else {
+        await writeFile(cli.generateOpenapi, JSON.stringify(spec, null, 2) + '\n');
+      }
+    }
 
-  return verdict(results, cli) ? 0 : 1;
+    if (cli.generateJsonLd !== undefined) {
+      if (firstResult?.parsed === undefined) {
+        process.stderr.write('Cannot generate JSON-LD: the TOML was not parsed successfully.\n');
+      } else {
+        const document = generateJsonLd(firstResult.parsed);
+        const validation = validateJsonLd(document);
+        if (!validation.valid) {
+          process.stderr.write(`JSON-LD validation failed:\n${validation.errors.join('\n')}\n`);
+          return 2;
+        }
+        const output = formatJsonLd(document);
+        if (cli.generateJsonLd === '-') {
+          process.stdout.write(output);
+        } else {
+          await writeFile(cli.generateJsonLd, output);
+        }
+      }
+    }
+
+    if (cli.graph && firstResult?.parsed) {
+      const diagram = generateDiagram(firstResult.parsed, {
+        format: cli.graph,
+        includeContracts: cli.graphIncludeContracts,
+        includeValidators: cli.graphIncludeValidators,
+        colorByProtocol: cli.graphColorByProtocol,
+      });
+      process.stdout.write(diagram + '\n');
+    }
+
+    if (cli.contractGraph !== undefined && firstResult?.parsed) {
+      const graph = await graphForDocument(firstResult.parsed, fetchImpl, {
+        ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+      });
+      if (graph === undefined) {
+        process.stderr.write(
+          '--contract-graph needs a declared Soroban contract and a network with a known RPC URL.\n',
+        );
+      } else {
+        process.stdout.write(renderDependencyGraph(graph, cli.contractGraph));
+      }
+    }
+
+    // Evaluate enterprise policy
+    if (cli.policy && firstResult?.parsed) {
+      const policy = await loadPolicy(cli.policy);
+      const validation = validatePolicy(policy);
+      if (!validation.valid) {
+        process.stderr.write(`Policy validation failed:\n${validation.errors.join('\n')}\n`);
+        return 2;
+      }
+      const sourcePath = cli.paths[0] ?? DEFAULT_PATH;
+      const source = sourcePath === '-' ? await readStdin() : await readFile(sourcePath, 'utf8');
+      const policyDiagnostics = evaluatePolicy(policy, firstResult.parsed, source);
+
+      // Convert policy diagnostics to standard diagnostics. A policy rule id
+      // is namespaced under `policy/`, but the engine also emits built-in ids
+      // (`security/redos-vulnerable-regex`) for a matcher it refused to run;
+      // those are already namespaced and must keep the id `--off` expects.
+      const convertedDiagnostics: Diagnostic[] = policyDiagnostics.map((pd) => ({
+        rule: pd.rule.includes('/') ? pd.rule : `policy/${pd.rule}`,
+        severity: pd.severity,
+        category: 'policy',
+        message: pd.message,
+        path: pd.path,
+        position: pd.position,
+        suggestion: pd.suggestion,
+        helpUri: undefined,
+      }));
+
+      if (convertedDiagnostics.length > 0 && results[0]) {
+        const finalized = finalize(
+          [...firstResult.diagnostics, ...convertedDiagnostics],
+          { strict: cli.strict },
+          firstResult.parsed,
+        );
+        results[0] = { name: results[0].name, result: finalized };
+      }
+    }
+
+    if (cli.interactive && cli.format !== 'text') {
+      process.stderr.write(
+        `--interactive draws its own view of the findings; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
+      );
+      return 2;
+    }
+
+    // A dashboard written into a pipe or a file would corrupt the output it is
+    // meant to replace, so anything that is not a terminal keeps the text report.
+    // Readiness renders its own report too, so the dashboard steps aside for it.
+    const dashboard =
+      cli.interactive === true &&
+      cli.readiness !== true &&
+      !cli.count &&
+      supportsDashboard(process.stdout);
+
+    // A generator writing its document to stdout replaces the lint report;
+    // appending the two would produce an unparseable stream for both.
+    const emitsOnlyDocument = cli.exportApConfig === true || cli.generateJsonLd === '-';
+
+    if (!emitsOnlyDocument && dashboard) {
+      await runDashboard(
+        results,
+        { stdin: process.stdin, stdout: process.stdout },
+        { color, ...(cli.quiet ? { filter: 'error' as const } : {}) },
+      );
+    } else if (!emitsOnlyDocument) {
+      // `--silent-success` follows the Unix "silence is golden" contract: a run
+      // with no diagnostics writes nothing at all, so a hook or a script only
+      // has to look at the exit code. The moment there is a diagnostic the
+      // normal report comes back, so nothing a reader needs is ever hidden.
+      const totalDiagnostics = results.reduce(
+        (sum, { result }) => sum + result.diagnostics.length,
+        0,
+      );
+      const silent = cli.silentSuccess === true && totalDiagnostics === 0;
+
+      if (!silent && cli.count) {
+        process.stdout.write(formatCount(results, { color }));
+      } else if (!silent) {
+        for (const { name, result } of results) {
+          if (cli.readiness) {
+            process.stdout.write(renderReadiness(result, name, cli, color));
+            continue;
+          }
+
+          const filtered = cli.quiet
+            ? { ...result, diagnostics: result.diagnostics.filter((d) => d.severity === 'error') }
+            : result;
+
+          // Under --quiet a file whose only findings are warnings has nothing
+          // left to print. --silent-success skips those files too, while the
+          // files that do have something to read still report as usual.
+          if (cli.silentSuccess && filtered.diagnostics.length === 0) continue;
+
+          process.stdout.write(render(filtered, name, cli, color));
+        }
+
+        // One line closing a multi-file run, so a CI log answers "did the whole
+        // set pass?" without anyone counting per-file blocks. Only the text
+        // reporter gets it: appending prose to JSON, SARIF, or XML would break the
+        // parsers those formats exist for. `summary` needs no such line — it is
+        // already one line per file.
+        if (results.length > 1 && cli.format === 'text') {
+          process.stdout.write(formatRunSummary(results, { color }));
+        }
+
+        // The contracts' own error catalogues, printed beside the findings that
+        // mention them. Only the text reporter: a matrix is for a human reading
+        // CI output, and appending prose to JSON or SARIF breaks those formats.
+        if (cli.format === 'text' && cli.showHelp && catalogues.length > 0) {
+          process.stdout.write(formatContractErrorCatalogues(catalogues, { helpUrls: true }));
+        }
+      }
+    }
+
+    if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
+      const deliveries = await deliverWebhooks(results, {
+        ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
+        ...(cli.webhookDiscord !== undefined ? { discord: cli.webhookDiscord } : {}),
+      });
+
+      for (const delivery of deliveries) {
+        if (delivery.ok) continue;
+        // The exit code stays tied to the diagnostics: a broken alert endpoint
+        // must not turn a clean file into a failing build.
+        process.stderr.write(
+          `Warning: ${delivery.channel} webhook failed after ${delivery.attempts} attempt(s)${
+            delivery.error === undefined ? '' : `: ${delivery.error}`
+          }\n`,
+        );
+      }
+    }
+
+    let healthCheckFailed = false;
+    if (cli.healthCheck) {
+      for (const { result } of results) {
+        const hcResults = await runHealthCheck(result);
+        if (hcResults.length > 0) {
+          process.stdout.write(formatHealthCheckTable(hcResults, color));
+          if (hcResults.some((r) => r.error || (r.statusCode && r.statusCode >= 400))) {
+            healthCheckFailed = true;
+          }
+        }
+      }
+    }
+
+    // Quorum summary table — printed when --audit-quorum (or --audit-security)
+    // is active and at least one result has a parsed document. Uses the text
+    // format only; appending prose to JSON / SARIF would break those parsers.
+    if ((cli.auditQuorum || cli.auditSecurity) && cli.format === 'text') {
+      for (const { result } of results) {
+        if (!result.parsed) continue;
+        const bftResults = await simulateQuorumBft(
+          result.parsed as Record<string, unknown>,
+          fetchImpl,
+        );
+        if (bftResults.length === 0) continue;
+        const intersectionSafe = !result.diagnostics.some(
+          (d) => d.rule === 'validators/quorum-intersection-failure',
+        );
+        process.stdout.write(formatQuorumSummaryTable(bftResults, intersectionSafe));
+      }
+    }
+
+    const lintPassed = verdict(results, { strict, failOn: cli.failOn, maxWarnings });
+    if (cli.exportAnchorTests && results.length > 0) {
+      const firstResult = results[0]!.result;
+      if (firstResult.parsed) {
+        const configObj = generateAnchorTestsConfig(
+          firstResult.parsed as Record<string, unknown>,
+          cli.domain,
+        );
+        const outJson = JSON.stringify(configObj, null, 2) + '\n';
+        if (cli.exportAnchorTests === '-') {
+          process.stdout.write(outJson);
+        } else {
+          await writeFile(cli.exportAnchorTests, outJson, 'utf8');
+        }
+      } else {
+        process.stderr.write('Cannot export anchor tests: TOML was not parsed successfully.\n');
+      }
+    }
+
+    // OTLP export, last: the collector should see the run as the user saw it,
+    // counts included. Like the webhooks above, a failed export is a warning on
+    // stderr and never a changed exit code — an observability endpoint being
+    // down must not fail a build over a file that is fine.
+    if (otel !== undefined && otelTracer !== undefined) {
+      otelTracer.endRun();
+      const metrics: OtelMetric[] = [];
+      for (const { name, result } of results) {
+        metrics.push(...severityMetrics(result, name));
+      }
+      const duration = durationMetric(otelTracer);
+      if (duration !== undefined) metrics.push(duration);
+      for (const outcome of await otel.exportRun(otelTracer, metrics)) {
+        if (outcome.ok) continue;
+        process.stderr.write(
+          `Warning: OTLP ${outcome.signal} export to ${outcome.url} failed${
+            outcome.error === undefined ? '' : `: ${outcome.error}`
+          }\n`,
+        );
+      }
+    }
+
+    return lintPassed && !healthCheckFailed ? 0 : 1;
+  };
+
+  const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+  if (cli.serveMock !== undefined) {
+    return serveMock(paths[0] as string, cli.serveMock);
+  }
+  if (cli.monitor || cli.serveMetrics !== undefined) {
+    return runMonitorDaemon(cli, paths);
+  }
+  if (cli.watch) {
+    return watchFiles(cli.domain ? [] : paths, cli, color, runLint);
+  }
+  return runLint(cli, color);
 }
 
-async function applyNetworkChecks(result: LintResult, cli: Cli): Promise<LintResult> {
-  if (!cli.checkNetwork || !result.parsed) return result;
+/**
+ * Resolves the positional arguments to a concrete list of paths.
+ *
+ * Anything holding glob magic is expanded here rather than by the shell, so
+ * the same quoted argument works under sh, PowerShell, and CMD — the first two
+ * agree on nothing else about quoting. A pattern that matches nothing is a
+ * usage mistake rather than a lint result, so it throws and `main` reports it
+ * with the exit code 2 every other bad-usage path already uses.
+ */
+async function expandInputs(inputs: string[]): Promise<string[]> {
+  const paths: string[] = [];
 
-  const diagnostics: Diagnostic[] = [
-    ...(await checkHorizon(result.parsed, fetch, { rules: cli.rules })),
-    ...(await checkNetworkAccounts(result.parsed)),
-    ...(await checkDisplayDecimals(result.parsed, fetch, { rules: cli.rules })),
-    ...(await checkSep38(result.parsed, fetch, { rules: cli.rules })),
-  ];
+  for (const input of inputs) {
+    if (input === '-' || !hasMagic(input)) {
+      paths.push(input);
+      continue;
+    }
 
-  if (cli.auditFees) {
-    diagnostics.push(...(await checkCrossSepFees(result.parsed, fetch, { rules: cli.rules })));
+    const matches = await expandGlob(input);
+    if (matches.length === 0) {
+      throw new Error(
+        `No files matched "${input}". Patterns are expanded by the linter, not the shell — check the path, and quote the pattern so it arrives intact.`,
+      );
+    }
+    paths.push(...matches);
   }
 
-  if (cli.verifyPostmessage) {
-    diagnostics.push(
-      ...(await verifySep24(result.parsed, fetch, {
-        rules: cli.rules,
-        verifyPostmessage: true,
-        ...(cli.postmessageUrl !== undefined ? { postmessage: { url: cli.postmessageUrl } } : {}),
-      })),
+  return [...new Set(paths)];
+}
+
+/**
+ * `--format-file` mode: rewrite each file in place and report what happened.
+ *
+ * A file that does not parse is never written to — the whole point of the
+ * round-trip guarantee is that a broken or half-saved file survives a
+ * formatting hook untouched — and it exits 2, the CLI's I/O failure code.
+ */
+async function formatFiles(cli: Cli): Promise<number> {
+  if (cli.domain) {
+    process.stderr.write(
+      '--format-file rewrites local files, so it cannot be combined with --domain.\n',
     );
+    return 2;
   }
 
-  if (diagnostics.length === 0) return result;
-  return finalize(
-    [...result.diagnostics, ...diagnostics],
-    { strict: cli.strict, rules: cli.rules },
-    result.parsed,
-  );
+  const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+  let failed = false;
+
+  for (const path of paths) {
+    try {
+      const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
+      const result = formatToml(source);
+
+      if (!result.ok) {
+        process.stderr.write(formatFailure(path === '-' ? 'stdin' : path, result));
+        failed = true;
+        continue;
+      }
+
+      if (path === '-') {
+        process.stdout.write(result.output);
+        continue;
+      }
+
+      if (result.changed) await writeFile(path, result.output, 'utf8');
+      process.stdout.write(`${result.changed ? 'Formatted' : 'Unchanged'} ${path}\n`);
+    } catch (error) {
+      process.stderr.write(`${message(error)}\n`);
+      failed = true;
+    }
+  }
+
+  return failed ? 2 : 0;
+}
+
+/**
+ * `--semantic-hash`: one `<sha256>  <name>` line per file, in the layout
+ * `sha256sum` uses, so a CI step can compare it against an approved value.
+ * `--format json` prints the hashes and canonical forms as one JSON array.
+ */
+async function printSemanticHashes(cli: Cli): Promise<number> {
+  if (cli.domain && cli.paths.length === 0) {
+    process.stderr.write('--semantic-hash hashes local files; pass a path or - for stdin.\n');
+    return 2;
+  }
+
+  const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+  const results: { file: string; hash: string; canonical: string }[] = [];
+  let failed = false;
+
+  for (const path of paths) {
+    const name = path === '-' ? 'stdin' : path;
+    try {
+      const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
+      const result = semanticHash(source);
+      if (!result.ok) {
+        const at =
+          result.line === undefined ? '' : ` at line ${result.line}, column ${result.column ?? 1}`;
+        process.stderr.write(`${name}${at}: ${result.error}\n`);
+        failed = true;
+        continue;
+      }
+      results.push({ file: name, hash: result.hash, canonical: result.canonical });
+      if (cli.format !== 'json') process.stdout.write(`${result.hash}  ${name}\n`);
+    } catch (error) {
+      process.stderr.write(`${message(error)}\n`);
+      failed = true;
+    }
+  }
+
+  if (cli.format === 'json') process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+  return failed ? 2 : 0;
+}
+
+function formatFailure(name: string, result: Extract<FormatResult, { ok: false }>): string {
+  const at =
+    result.line === undefined ? '' : ` at line ${result.line}, column ${result.column ?? 1}`;
+  return `${name}${at}: ${result.error}\n`;
 }
 
 function render(result: LintResult, name: string, cli: Cli, color: boolean): string {
   switch (cli.format) {
     case 'json':
       return formatJson(result, name);
+    case 'ndjson':
+      return formatNdjson(result, name);
     case 'sarif':
       return formatSarif(result, name, VERSION);
     case 'github':
       return formatGithub(result, name);
     case 'junit':
       return formatJunit(result, name);
+    case 'html':
+      return formatHtml(result, name);
+    case 'checkstyle':
+      return formatCheckstyle(result, name, VERSION);
+    case 'markdown':
+      return formatMarkdown(result, name);
+    case 'pr-comment':
+      return formatPrComment(result, { filename: name });
+    case 'sonar':
+      return formatSonar(result, name);
     case 'text':
       return formatText(result, {
         filename: name,
@@ -294,23 +1821,44 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
         showSuggestions: !cli.noSuggestions,
         errorsOnly: cli.quiet,
       });
+    case 'summary':
+      return formatSummary(result, name, { color });
   }
 }
 
+/** Formats the wallet listing readiness report, in text or JSON. */
+function renderReadiness(result: LintResult, name: string, cli: Cli, color: boolean): string {
+  const report = calculateReadiness(result);
+  return cli.format === 'json'
+    ? formatReadinessJson(report, name)
+    : formatReadiness(report, { filename: name, color });
+}
+
 /** Combines per-file verdicts, including the `--max-warnings` threshold. */
-function verdict(results: { result: LintResult }[], cli: Cli): boolean {
+function verdict(
+  results: { result: LintResult }[],
+  options: { strict: boolean; failOn?: Severity; maxWarnings?: number },
+): boolean {
   const totals = results.reduce(
     (acc, { result }) => {
       acc.error += result.counts.error;
       acc.warning += result.counts.warning;
+      acc.info += result.counts.info;
       return acc;
     },
-    { error: 0, warning: 0 },
+    { error: 0, warning: 0, info: 0 },
   );
 
+  // `--fail-on` names the threshold explicitly, so it wins over `--strict`'s
+  // implicit one; without either, only errors fail the run. The threshold is
+  // the least severe diagnostic that still fails CI — everything ranked at or
+  // above it does.
+  const threshold = options.failOn ?? (options.strict ? 'warning' : 'error');
+
   if (totals.error > 0) return false;
-  if (cli.strict && totals.warning > 0) return false;
-  if (cli.maxWarnings !== undefined && totals.warning > cli.maxWarnings) return false;
+  if (threshold !== 'error' && totals.warning > 0) return false;
+  if (threshold === 'info' && totals.info > 0) return false;
+  if (options.maxWarnings !== undefined && totals.warning > options.maxWarnings) return false;
   return true;
 }
 
@@ -318,11 +1866,35 @@ function parseArgs(argv: string[]): Cli | 'handled' {
   const cli: Cli = {
     paths: [],
     format: 'text',
+    formatFile: false,
+    semanticHash: false,
     strict: false,
     quiet: false,
+    count: false,
     showHelp: false,
     rules: {},
     checkNetwork: false,
+    auditFees: false,
+    verifyPostmessage: false,
+    auditQuorum: false,
+    auditDiversity: false,
+    followLinks: false,
+    verifySep10: false,
+    verifySep38: false,
+    verifySep24: false,
+    verifySep30: false,
+    verifySep12: false,
+    crawlPeers: false,
+    verifyDnssec: false,
+    verifyOverlay: false,
+    verifyBuckets: false,
+    verifyHistoryGaps: false,
+    checkContracts: false,
+    simulateSoroban: false,
+    sorobanRentAudit: false,
+    graphIncludeContracts: false,
+    graphIncludeValidators: false,
+    graphColorByProtocol: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -336,16 +1908,66 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '-v':
       case '--version':
-        process.stdout.write(`${VERSION}\n`);
+        if (hasJsonFormatFlag(argv)) {
+          process.stdout.write(
+            `${JSON.stringify(
+              {
+                name: 'stellar-toml-lint',
+                version: VERSION,
+                node: process.version,
+              },
+              null,
+              2,
+            )}\n`,
+          );
+        } else {
+          process.stdout.write(`${VERSION}\n`);
+        }
         return 'handled';
 
       case '--list-rules':
         process.stdout.write(listRules());
         return 'handled';
 
+      case '--json-schema':
+        process.stdout.write(`${JSON.stringify(getTomlJsonSchema(), null, 2)}\n`);
+        return 'handled';
+
+      case '--completion': {
+        const shell = requireValue(argv, ++i, arg);
+        if (!isCompletionShell(shell)) {
+          throw new Error(`Unknown shell "${shell}". Expected bash, zsh, or fish.`);
+        }
+        process.stdout.write(generateCompletion(shell, allRules));
+        return 'handled';
+      }
+
+      case '--lsp':
+        cli.lsp = true;
+        break;
+
+      case '--install-hook':
+        cli.installHook = requireHookName(argv, ++i, arg);
+        break;
+
+      case '--uninstall-hook':
+        cli.uninstallHook = requireHookName(argv, ++i, arg);
+        break;
+
       case '-d':
       case '--domain':
         cli.domain = requireValue(argv, ++i, arg);
+        break;
+      case '--export-anchor-tests':
+        cli.exportAnchorTests = requireValue(argv, ++i, arg);
+        break;
+
+      case '--format-file':
+        cli.formatFile = true;
+        break;
+
+      case '--semantic-hash':
+        cli.semanticHash = true;
         break;
 
       case '-f':
@@ -353,10 +1975,17 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         const value = requireValue(argv, ++i, arg);
         if (!isFormat(value)) {
           throw new Error(
-            `Unknown format "${value}". Expected text, json, sarif, github, or junit.`,
+            `Unknown format "${value}". Expected text, summary, json, ndjson, sarif, github, junit, html, checkstyle, markdown, or pr-comment.`,
           );
         }
         cli.format = value;
+        break;
+      }
+
+      case '--diff': {
+        const base = requireValue(argv, ++i, arg);
+        const target = requireValue(argv, ++i, arg);
+        cli.diff = { base, target };
         break;
       }
 
@@ -364,13 +1993,31 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.strict = true;
         break;
 
+      case '--readiness':
+      case '--score':
+        cli.readiness = true;
+        break;
+
+      case '-w':
+      case '--watch':
+        cli.watch = true;
+        break;
+
       case '-i':
       case '--interactive':
         cli.interactive = true;
         break;
 
+      case '--explore-rules':
+        cli.exploreRules = true;
+        break;
+
       case '--no-suggestions':
         cli.noSuggestions = true;
+        break;
+
+      case '--health-check':
+        cli.healthCheck = true;
         break;
 
       case '--check-network':
@@ -395,6 +2042,154 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.postmessageUrl = value;
         break;
       }
+
+      case '--check-ipv6':
+        cli.checkIpv6 = true;
+        break;
+
+      case '--audit-routing':
+        cli.auditRouting = true;
+        break;
+
+      case '--expected-asn': {
+        const value = requireValue(argv, ++i, arg).replace(/^AS/i, '');
+        if (!/^\d+$/.test(value))
+          throw new Error('--expected-asn expects an AS number, e.g. AS12345.');
+        cli.expectedAsns ??= [];
+        cli.expectedAsns.push(value);
+        break;
+      }
+
+      case '--verify-directory-sync':
+        cli.verifyDirectorySync = true;
+        break;
+
+      case '--directory-feed': {
+        const value = requireValue(argv, ++i, arg);
+        if (!isSupportedWebhookUrl(value)) {
+          throw new Error('--directory-feed expects an http or https URL.');
+        }
+        cli.directoryFeeds ??= [];
+        cli.directoryFeeds.push(value);
+        break;
+      }
+
+      case '--audit-quorum':
+        cli.auditQuorum = true;
+        break;
+
+      case '--audit-multisig':
+        cli.auditMultisig = true;
+        break;
+
+      case '--audit-dos':
+        cli.auditDos = true;
+        break;
+
+      case '--crawl-topology':
+        cli.crawlTopology = true;
+        break;
+
+      case '--audit-diversity':
+        cli.auditDiversity = true;
+        break;
+
+      case '--verify-sep10':
+        cli.verifySep10 = true;
+        break;
+
+      case '--audit-security':
+        cli.auditSecurity = true;
+        break;
+
+      case '--verify-sep6':
+        cli.verifySep6 = true;
+        break;
+
+      case '--verify-sep31':
+        cli.verifySep31 = true;
+        break;
+
+      case '--verify-sep8':
+        cli.verifySep8 = true;
+        break;
+
+      case '--verify-sep38':
+        cli.verifySep38 = true;
+        break;
+
+      case '--verify-sep24':
+        cli.verifySep24 = true;
+        break;
+
+      case '--verify-sep12':
+        cli.verifySep12 = true;
+        break;
+
+      case '--verify-sep12-deletion':
+        cli.verifySep12Deletion = true;
+        break;
+
+      case '--verify-sep24-quote-lock':
+        cli.verifySep24QuoteLock = true;
+        break;
+
+      case '--verify-clawback':
+        cli.verifyClawback = true;
+        break;
+
+      case '--verify-sep30':
+        cli.verifySep30 = true;
+        break;
+
+      case '--crawl-peers':
+        cli.crawlPeers = true;
+        break;
+
+      case '--verify-overlay':
+        cli.verifyOverlay = true;
+        break;
+
+      case '--verify-buckets':
+        cli.verifyBuckets = true;
+        break;
+
+      case '--verify-history-gaps':
+        cli.verifyHistoryGaps = true;
+        break;
+
+      case '--verify-dnssec':
+        cli.verifyDnssec = true;
+        break;
+
+      case '--follow-links':
+        cli.followLinks = true;
+        break;
+
+      case '--check-contracts':
+        cli.checkContracts = true;
+        break;
+
+      case '--rpc-url':
+      case '--soroban-rpc':
+        cli.sorobanRpc = requireValue(argv, ++i, arg);
+        break;
+
+      case '--evm-rpc':
+        cli.evmRpc = requireValue(argv, ++i, arg);
+        break;
+
+      case '--simulate-soroban':
+        cli.simulateSoroban = true;
+        break;
+
+      case '--soroban-rent-audit':
+        cli.sorobanRentAudit = true;
+        break;
+
+      case '--mock-fixtures':
+        cli.mockFixtures = requireValue(argv, ++i, arg);
+        break;
 
       case '--webhook-slack':
       case '--webhook-discord': {
@@ -423,12 +2218,57 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.generateOpenapi = requireValue(argv, ++i, arg);
         break;
 
+      case '--graph': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'mermaid' && value !== 'dot') {
+          throw new Error(`Unknown graph format "${value}". Expected mermaid or dot.`);
+        }
+        cli.graph = value;
+        break;
+      }
+
+      case '--contract-graph': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'json' && value !== 'mermaid') {
+          throw new Error(`Unknown contract graph format "${value}". Expected json or mermaid.`);
+        }
+        cli.contractGraph = value;
+        break;
+      }
+
+      case '--graph-contracts':
+        cli.graphIncludeContracts = true;
+        break;
+
+      case '--graph-validators':
+        cli.graphIncludeValidators = true;
+        break;
+
+      case '--graph-color':
+        cli.graphColorByProtocol = true;
+        break;
+
+      case '--policy':
+        cli.policy = requireValue(argv, ++i, arg);
+        break;
+
       case '--max-warnings': {
         const value = Number(requireValue(argv, ++i, arg));
         if (!Number.isInteger(value) || value < 0) {
           throw new Error('--max-warnings expects a non-negative integer.');
         }
         cli.maxWarnings = value;
+        break;
+      }
+
+      case '--fail-on': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'error' && value !== 'warning' && value !== 'info') {
+          throw new Error(
+            `Unknown --fail-on severity "${value}". Expected error, warning, or info.`,
+          );
+        }
+        cli.failOn = value;
         break;
       }
 
@@ -441,9 +2281,26 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         break;
       }
 
+      case '--preset': {
+        const value = requireValue(argv, ++i, arg);
+        // Resolved here rather than stored as a name, so an unknown preset is
+        // the same exit-2 usage error an unknown rule id is.
+        cli.preset = resolvePreset(value).name;
+        break;
+      }
+
       case '-q':
       case '--quiet':
         cli.quiet = true;
+        break;
+
+      case '--count':
+        cli.count = true;
+        break;
+
+      case '--silent-success':
+      case '--quiet-success':
+        cli.silentSuccess = true;
         break;
 
       case '--show-help-urls':
@@ -458,13 +2315,279 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.color = false;
         break;
 
+      case '--monitor':
+        cli.monitor = true;
+        break;
+
+      case '--serve-metrics': {
+        // Like --serve-mock, the port is optional: only a bare number after
+        // the flag is taken as one, so a file path is left for the next
+        // iteration (e.g. `--monitor --serve-metrics .`).
+        const next = argv[i + 1];
+        if (next !== undefined && /^\d+$/.test(next)) {
+          const port = Number(next);
+          if (port > 65535) throw new Error('--serve-metrics expects a port between 0 and 65535.');
+          cli.serveMetrics = port;
+          i++;
+        } else {
+          cli.serveMetrics = DEFAULT_METRICS_PORT;
+        }
+        break;
+      }
+
+      case '--sla-store':
+        cli.slaStore = requireValue(argv, ++i, arg);
+        break;
+
+      case '--otel-endpoint':
+        cli.otelEndpoint = requireValue(argv, ++i, arg);
+        // Resolved now rather than at export time: pasting a collector's gRPC
+        // URL out of a compose file is the common mistake, and a long lint run
+        // should not end by discovering the endpoint was never going to work.
+        otlpEndpointFor(cli.otelEndpoint, 'traces');
+        break;
+
+      case '--otel-service-name':
+        cli.otelServiceName = requireValue(argv, ++i, arg);
+        break;
+
+      case '--generate-jsonld': {
+        // The output path is optional: a following `.json` argument is the
+        // destination, anything else stays a positional input path and the
+        // document goes to stdout.
+        const next = argv[i + 1];
+        if (next !== undefined && /\.json$/i.test(next)) {
+          cli.generateJsonLd = next;
+          i++;
+        } else {
+          cli.generateJsonLd = '-';
+        }
+        break;
+      }
+
+      case '--interval': {
+        const value = Number(requireValue(argv, ++i, arg));
+        if (!Number.isInteger(value) || value < 1) {
+          throw new Error('--interval expects a positive integer.');
+        }
+        cli.interval = value;
+        break;
+      }
+
+      case '--on-change-webhook':
+        cli.webhookUrl = requireValue(argv, ++i, arg);
+        if (!isSupportedWebhookUrl(cli.webhookUrl)) {
+          throw new Error('--on-change-webhook expects an http or https URL.');
+        }
+        break;
+
+      case '--migrate': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'sep41' && value !== 'v2') {
+          throw new Error(`Unknown migration target "${value}". Expected sep41 or v2.`);
+        }
+        cli.migrate = value;
+        break;
+      }
+
+      case '--fix':
+        cli.fix = true;
+        break;
+
+      case '--dry-run':
+        cli.dryRun = true;
+        break;
+
+      case '--serve-mock': {
+        // The port is optional, so only a bare number after the flag is taken
+        // as one; anything else is left for the next iteration (a file path).
+        const next = argv[i + 1];
+        if (next !== undefined && /^\d+$/.test(next)) {
+          const port = Number(next);
+          if (port > 65535) throw new Error('--serve-mock expects a port between 0 and 65535.');
+          cli.serveMock = port;
+          i++;
+        } else {
+          cli.serveMock = DEFAULT_MOCK_PORT;
+        }
+        break;
+      }
+
       default:
         if (arg.startsWith('--')) throw new Error(`Unknown option "${arg}".`);
         cli.paths.push(arg);
     }
   }
 
+  if (cli.preset !== undefined) {
+    // The bundle is laid down *after* the loop, so a rule flag wins whether it
+    // was typed before or after `--preset`: the preset is a baseline, and the
+    // command line is the intent for this run.
+    cli.rules = { ...PRESETS[cli.preset].rules, ...cli.rules };
+  }
+
   return cli;
+}
+
+/**
+ * Runs the `--monitor` polling daemon and/or the `--serve-metrics` Prometheus
+ * exporter until SIGINT or SIGTERM.
+ *
+ * The metrics endpoint re-lints the most recent body on every scrape, so the
+ * exported compliance score and rule counts always match what the daemon last
+ * saw. The certificate-expiry and validator probes run at the scrape interval
+ * Prometheus controls, not at the change-poll rate. With `--sla-store` the
+ * daemon samples a poll at most once a minute into the history behind the
+ * 7/30/90-day availability calculation.
+ */
+async function runMonitorDaemon(cli: Cli, paths: string[]): Promise<number> {
+  const target =
+    cli.domain !== undefined ? `https://${cli.domain}/.well-known/stellar.toml` : paths[0]!;
+
+  const sla = new SlaCalculator({
+    ...(cli.slaStore !== undefined ? { path: cli.slaStore } : {}),
+  });
+  if (cli.slaStore !== undefined) await sla.load();
+
+  // The last body the daemon (or stdin) supplied, so a scrape never has to
+  // re-fetch the target just to export a score.
+  let latestSource: string | undefined;
+  if (target === '-') {
+    try {
+      latestSource = await readStdin();
+    } catch {
+      latestSource = undefined;
+    }
+  }
+
+  const metrics =
+    cli.serveMetrics !== undefined
+      ? new PrometheusMetricsServer({
+          port: cli.serveMetrics,
+          keepAlive: cli.monitor !== true,
+          collect: async () => {
+            let source = latestSource;
+            if (source === undefined && target !== '-') {
+              try {
+                source = await readFile(target, 'utf8');
+              } catch {
+                // The exporter keeps serving empty metrics until the file
+                // exists, so a Kubernetes sidecar can start before the mount.
+                source = undefined;
+              }
+            }
+            if (source === undefined) return {};
+            const result = lint(source, { rules: cli.rules });
+            const doc = (result.parsed ?? {}) as Record<string, unknown>;
+            return collectMetrics(doc, result);
+          },
+        })
+      : undefined;
+
+  if (metrics !== undefined) {
+    try {
+      await metrics.start();
+    } catch (error) {
+      process.stderr.write(`Could not start the metrics server: ${message(error)}\n`);
+      return 2;
+    }
+    process.stdout.write(`stellar-toml-lint metrics exporter listening on ${metrics.url()}\n`);
+  }
+
+  const daemon = cli.monitor
+    ? new MonitorDaemon({
+        url: target,
+        interval: cli.interval,
+        webhookUrl: cli.webhookUrl,
+        sla,
+        onPoll: (sample) => {
+          if (sample.body !== undefined) latestSource = sample.body;
+        },
+      })
+    : undefined;
+
+  if (daemon !== undefined) await daemon.start();
+
+  return new Promise<number>((resolve) => {
+    let settled = false;
+    const shutdown = (): void => {
+      if (settled) return;
+      settled = true;
+      daemon?.stop();
+      if (metrics !== undefined) {
+        void metrics.stop().then(
+          () => resolve(0),
+          () => resolve(0),
+        );
+      } else {
+        resolve(0);
+      }
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
+  });
+}
+
+/**
+ * Serves `path` and the mock anchor endpoints generated from it until SIGINT
+ * or SIGTERM, then closes the server and resolves with exit code 0.
+ */
+async function serveMock(path: string, port: number): Promise<number> {
+  if (path === '-') {
+    process.stderr.write('--serve-mock needs a file path; it cannot serve stdin.\n');
+    return 2;
+  }
+
+  let source: string;
+  try {
+    source = await readFile(path, 'utf8');
+  } catch (error) {
+    process.stderr.write(`${message(error)}\n`);
+    return 2;
+  }
+  const { parsed } = lint(source);
+  if (parsed === undefined) {
+    process.stderr.write(`${path} is not valid TOML; run the linter on it first.\n`);
+    return 2;
+  }
+
+  const secret = process.env.STELLAR_TOML_MOCK_SIGNING_SECRET;
+  const { server, signer } = createMockServer({
+    source,
+    doc: parsed,
+    ...(secret ? { signingSecret: secret } : {}),
+  });
+
+  try {
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once('error', rejectListen);
+      server.listen(port, () => resolveListen());
+    });
+  } catch (error) {
+    process.stderr.write(`Could not start the mock server: ${message(error)}\n`);
+    return 2;
+  }
+
+  const address = server.address();
+  const boundPort = typeof address === 'object' && address !== null ? address.port : port;
+  process.stdout.write(formatRoutingTable(`http://localhost:${boundPort}`, signer));
+
+  return new Promise<number>((resolveExit) => {
+    const shutdown = (): void => {
+      server.closeAllConnections();
+      server.close(() => resolveExit(0));
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
+  });
+}
+
+function requireHookName(argv: string[], index: number, flag: string): HookName {
+  const value = requireValue(argv, index, flag);
+  if (!isHookName(value)) {
+    throw new Error(`Unknown hook "${value}". Expected pre-commit or pre-push.`);
+  }
+  return value;
 }
 
 function requireValue(argv: string[], index: number, flag: string): string {
@@ -478,23 +2601,31 @@ function requireValue(argv: string[], index: number, flag: string): string {
 function isFormat(value: string): value is Format {
   return (
     value === 'text' ||
+    value === 'summary' ||
     value === 'json' ||
+    value === 'ndjson' ||
     value === 'sarif' ||
     value === 'github' ||
-    value === 'junit'
+    value === 'junit' ||
+    value === 'html' ||
+    value === 'checkstyle' ||
+    value === 'markdown' ||
+    value === 'sonar' ||
+    value === 'pr-comment'
   );
 }
 
-/** Rejects typo'd rule ids rather than silently ignoring the override. */
-function assertKnownRule(id: string): void {
-  if (allRules.some((rule) => rule.id === id)) return;
-  const near = allRules
-    .map((rule) => rule.id)
-    .filter((candidate) => candidate.includes(id) || id.includes(candidate.split('/')[1] ?? ''))
-    .slice(0, 3);
-  throw new Error(
-    `Unknown rule "${id}".${near.length > 0 ? ` Did you mean: ${near.join(', ')}?` : ''} Run --list-rules to see them all.`,
-  );
+function hasJsonFormatFlag(argv: string[]): boolean {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string;
+    if ((arg === '-f' || arg === '--format') && argv[i + 1] === 'json') {
+      return true;
+    }
+    if (arg === '--format=json' || arg === '-f=json') {
+      return true;
+    }
+  }
+  return false;
 }
 
 function listRules(): string {
@@ -553,3 +2684,85 @@ main(process.argv.slice(2))
     process.stderr.write(`Unexpected failure: ${message(error)}\n`);
     process.exitCode = 2;
   });
+
+/**
+ * Handles `--install-hook` and `--uninstall-hook`.
+ *
+ * The generated hook is intentionally not run here: it is verified by the
+ * test suite against a throwaway repository, not by the installer pretending
+ * the hook it just wrote works.
+ */
+async function runHookCommand(cli: Cli): Promise<number> {
+  if (cli.uninstallHook !== undefined) {
+    const result = await uninstallHook(cli.uninstallHook);
+    if (!result.present) {
+      process.stdout.write(`No ${cli.uninstallHook} hook installed at ${result.path}\n`);
+      return 0;
+    }
+    if (!result.removed) {
+      process.stderr.write(
+        `${result.path} is not a stellar-toml-lint hook; leaving it untouched. Remove it by hand if that is what you want.\n`,
+      );
+      return 1;
+    }
+    process.stdout.write(`Removed the ${cli.uninstallHook} hook from ${result.path}\n`);
+    if (result.restored !== undefined) {
+      process.stdout.write(`Restored the previous hook from ${result.path}${BACKUP_SUFFIX}\n`);
+    }
+    return 0;
+  }
+
+  const name = cli.installHook;
+  if (name === undefined) return 0;
+
+  const result = await installHook(name);
+  process.stdout.write(`Installed the ${name} hook at ${result.path}\n`);
+  if (result.backedUp !== undefined) {
+    process.stdout.write(`Preserved the existing hook at ${result.backedUp}\n`);
+  }
+  process.stdout.write(
+    'The hook runs $STELLAR_TOML_LINT; set it to pin the exact version your CI uses.\n',
+  );
+  return 0;
+}
+
+async function watchFiles(
+  paths: string[],
+  cli: Cli,
+  color: boolean,
+  runLint: (cli: Cli, color: boolean) => Promise<number>,
+) {
+  await runLint(cli, color);
+  const watchState = await startSmartWatch(paths, {
+    runOffline: (changedPaths) =>
+      runLint(
+        {
+          ...cli,
+          paths: changedPaths,
+          checkNetwork: false,
+          checkContracts: false,
+          followLinks: false,
+        },
+        color,
+      ),
+    ...(cli.checkNetwork
+      ? { runNetwork: (changedPaths: string[]) => runLint({ ...cli, paths: changedPaths }, color) }
+      : {}),
+    onRun: (phase, changedPaths) => {
+      if (process.stdout.isTTY) process.stdout.write('\x1Bc');
+      process.stdout.write(`Watch mode: ${phase} checks for ${changedPaths.join(', ')}\n`);
+    },
+    onError: (path, error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Warning: Watcher error on ${path}: ${detail}\n`);
+    },
+  });
+
+  // Wait indefinitely, exit on SIGINT
+  return new Promise<number>(() => {
+    process.on('SIGINT', () => {
+      watchState.close();
+      process.exit(0);
+    });
+  });
+}

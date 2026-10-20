@@ -8,6 +8,7 @@ import {
   xdr,
 } from '@stellar/stellar-base';
 import type { Diagnostic, Rule, RuleContext, RuleOverrides } from '../types.js';
+import { adaptiveFetch } from '../network/adaptive-client.js';
 
 const MAX_CLASSIC_DECIMALS = 7;
 const CONTRACT_MISMATCH_RULE = 'currencies/display-decimals-contract-mismatch';
@@ -30,7 +31,8 @@ function networkPassphraseOf(doc: Record<string, unknown>): string | undefined {
   return typeof doc.NETWORK_PASSPHRASE === 'string' ? doc.NETWORK_PASSPHRASE : undefined;
 }
 
-function rpcUrlFor(passphrase: string | undefined): string | undefined {
+/** Soroban RPC endpoint for a known network passphrase, or `undefined`. */
+export function rpcUrlFor(passphrase: string | undefined): string | undefined {
   switch (passphrase) {
     case Networks.PUBLIC:
       return 'https://soroban-rpc.mainnet.stellar.org';
@@ -113,7 +115,7 @@ async function contractDecimals(
 
 export async function checkDisplayDecimals(
   doc: Record<string, unknown>,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = adaptiveFetch,
   options: AuditOptions = {},
 ): Promise<Diagnostic[]> {
   const passphrase = networkPassphraseOf(doc);

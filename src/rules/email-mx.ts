@@ -5,7 +5,7 @@ export const emailMxRule: Rule = {
   category: 'general',
   severity: 'warning',
   description: 'ORG_OFFICIAL_EMAIL domain must have MX records for email deliverability',
-  run: async ctx => {
+  run: async (ctx) => {
     // Guard: only run under --check-network
     if (!ctx.options.checkNetwork) return;
 
@@ -18,8 +18,19 @@ export const emailMxRule: Rule = {
     const domain = officialEmail.split('@')[1];
     if (!domain) return;
 
+    // DNS is a Node built-in, but this rule lives in the shared registry the
+    // browser build walks. Load it lazily and stay silent where it cannot
+    // exist — reported as not observed rather than guessed at, the same
+    // bargain `tls.ts` makes for its socket. Typed structurally so the module
+    // is only named in the `import()` call, never in a static import.
+    let resolveMx: (hostname: string) => Promise<{ exchange: string; priority: number }[]>;
     try {
-      const { resolveMx } = await import('node:dns/promises');
+      ({ resolveMx } = await import('node:dns/promises'));
+    } catch {
+      return;
+    }
+
+    try {
       const mxRecords = await resolveMx(domain);
       if (mxRecords.length === 0) {
         ctx.report({

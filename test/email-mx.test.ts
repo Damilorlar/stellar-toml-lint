@@ -10,7 +10,7 @@ vi.mock('node:dns/promises', async () => ({
 }));
 
 function makeContext(doc: Record<string, unknown>): RuleContext {
-  const source = `VERSION="2.7.0"\nNETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"\n[DOCUMENTATION]\nORG_NAME="Example"\nORG_URL="https://example.com"\nORG_DESCRIPTION="Example"\nORG_OFFICIAL_EMAIL="ops@example.com"\n`;
+  const source = `VERSION="2.7.0"\nNETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"\n[DOCUMENTATION]\nORG_NAME="Example"\nORG_URL="https://example.com"\nORG_DESCRIPTION="Example"\nORG_OFFICIAL_EMAIL="ops@example.com"\nORG_PRIVACY_POLICY="https://example.com/privacy"\nORG_TERMS_OF_SERVICE="https://example.com/terms"\n`;
   const pathToLine: Record<string, number> = {};
   let lineNum = 1;
   for (const line of source.split('\n')) {
@@ -43,8 +43,8 @@ function makeContext(doc: Record<string, unknown>): RuleContext {
 describe('email-mx', () => {
   it('passes when MX records resolve', async () => {
     vi.mocked(resolveMx).mockResolvedValue([
-      { exchange: 'alt1.aspmx.l.google.com', priority: 10 },
-      { exchange: 'alt2.aspmx.l.google.com', priority: 20 },
+      { exchange: 'alt1.aspmx.l.google.com', priority: 1 },
+      { exchange: 'alt2.aspmx.l.google.com', priority: 5 },
     ]);
 
     const doc = {
@@ -67,6 +67,7 @@ describe('email-mx', () => {
 
     await emailMxRule.run(ctx);
 
+    // A domain with working MX records is not a finding.
     assert.equal(reported.length, 0);
   });
 
@@ -96,7 +97,7 @@ describe('email-mx', () => {
     assert.equal(reported.length, 1);
     assert.equal(reported[0]!.rule, 'general/email-domain-no-mx');
     assert.equal(reported[0]!.severity, 'warning');
-    assert.ok(reported[0]!.message.includes('Could not resolve MX records'));
+    assert(reported[0]!.message.includes('Could not resolve MX records'));
   });
 
   it('asserts general/email-domain-no-mx when DNS lookup fails with NETWORK', async () => {
