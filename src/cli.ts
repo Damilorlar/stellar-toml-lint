@@ -15,6 +15,7 @@ import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from '
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
+import { checkCrossSepFees } from './rules/cross-sep-fee-auditor.js';
 import { allRules } from './rules/index.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
 import {
@@ -24,7 +25,7 @@ import {
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
-import type { LintResult, RuleOverrides, Severity } from './types.js';
+import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
@@ -43,6 +44,7 @@ interface Cli {
   rules: RuleOverrides;
   maxWarnings?: number;
   checkNetwork: boolean;
+  auditFees?: boolean;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -77,6 +79,9 @@ OPTIONS
       --no-suggestions    Hide diagnostic suggestions in the output
       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, and
                           ANCHOR_QUOTE_SERVER against the network
+      --audit-fees        Compare fixed and percentage fees across stellar.toml,
+                          SEP-6 /info, SEP-24 /info, and SEP-38 /prices
+                          (implies --check-network)
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -116,14 +121,13 @@ async function main(argv: string[]): Promise<number> {
 
   try {
     if (cli.domain && cli.paths.length === 0) {
-      results.push({
-        name: cli.domain,
-        result: await lintDomain(cli.domain, {
-          strict: cli.strict,
-          rules: cli.rules,
-          checkNetwork: cli.checkNetwork,
-        }),
+      let result = await lintDomain(cli.domain, {
+        strict: cli.strict,
+        rules: cli.rules,
+        checkNetwork: cli.checkNetwork,
       });
+      result = await applyNetworkChecks(result, cli);
+      results.push({ name: cli.domain, result });
     } else {
       const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
       for (const path of paths) {
@@ -135,21 +139,7 @@ async function main(argv: string[]): Promise<number> {
           ...(cli.domain ? { domain: cli.domain } : {}),
         });
 
-        if (cli.checkNetwork && fileResult.parsed) {
-          const networkDiagnostics = [
-            ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkNetworkAccounts(fileResult.parsed)),
-            ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
-          ];
-          if (networkDiagnostics.length > 0) {
-            fileResult = finalize(
-              [...fileResult.diagnostics, ...networkDiagnostics],
-              { strict: cli.strict },
-              fileResult.parsed,
-            );
-          }
-        }
+        fileResult = await applyNetworkChecks(fileResult, cli);
 
         results.push({
           name: path === '-' ? 'stdin' : path,
@@ -242,6 +232,28 @@ async function main(argv: string[]): Promise<number> {
   }
 
   return verdict(results, cli) ? 0 : 1;
+}
+
+async function applyNetworkChecks(result: LintResult, cli: Cli): Promise<LintResult> {
+  if (!cli.checkNetwork || !result.parsed) return result;
+
+  const diagnostics: Diagnostic[] = [
+    ...(await checkHorizon(result.parsed, fetch, { rules: cli.rules })),
+    ...(await checkNetworkAccounts(result.parsed)),
+    ...(await checkDisplayDecimals(result.parsed, fetch, { rules: cli.rules })),
+    ...(await checkSep38(result.parsed, fetch, { rules: cli.rules })),
+  ];
+
+  if (cli.auditFees) {
+    diagnostics.push(...(await checkCrossSepFees(result.parsed, fetch, { rules: cli.rules })));
+  }
+
+  if (diagnostics.length === 0) return result;
+  return finalize(
+    [...result.diagnostics, ...diagnostics],
+    { strict: cli.strict, rules: cli.rules },
+    result.parsed,
+  );
 }
 
 function render(result: LintResult, name: string, cli: Cli, color: boolean): string {
@@ -342,6 +354,11 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         break;
 
       case '--check-network':
+        cli.checkNetwork = true;
+        break;
+
+      case '--audit-fees':
+        cli.auditFees = true;
         cli.checkNetwork = true;
         break;
 
@@ -495,8 +512,10 @@ function message(error: unknown): string {
 }
 
 main(process.argv.slice(2))
-  .then((code) => process.exit(code))
+  .then((code) => {
+    process.exitCode = code;
+  })
   .catch((error: unknown) => {
     process.stderr.write(`Unexpected failure: ${message(error)}\n`);
-    process.exit(2);
+    process.exitCode = 2;
   });

@@ -113,6 +113,11 @@ export const KNOWN_CURRENCY_FIELDS = new Set<string>([
   'approval_server',
   'approval_criteria',
   'toml',
+  'fee_fixed',
+  'fee_percent',
+  'fee_minimum',
+  'fee_tiers',
+  'fee_schedule',
 ]);
 
 /** Every field SEP-1 defines in a `[[VALIDATORS]]` entry. */

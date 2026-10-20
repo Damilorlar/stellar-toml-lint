@@ -11,7 +11,14 @@ export type Severity = 'error' | 'warning' | 'info';
 
 /** Which part of SEP-1 a rule covers. Used for grouping in reports. */
 export type RuleCategory =
-  'file' | 'general' | 'documentation' | 'principals' | 'currencies' | 'validators' | 'network';
+  | 'file'
+  | 'general'
+  | 'documentation'
+  | 'principals'
+  | 'currencies'
+  | 'validators'
+  | 'network'
+  | 'fees';
 
 /** A 1-based position in the source file. */
 export interface Position {
@@ -82,8 +89,6 @@ export interface LintOptions {
    * exercised without opening a socket.
    */
   tls?: TlsSession;
-  /** When true, perform network checks (MX records, account existence). */
-  checkNetwork?: boolean;
 }
 
 export interface LintResult {

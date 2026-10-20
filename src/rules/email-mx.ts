@@ -1,4 +1,3 @@
-import { resolveMx } from 'node:dns/promises';
 import type { Rule } from '../types.js';
 
 export const emailMxRule: Rule = {
@@ -20,6 +19,7 @@ export const emailMxRule: Rule = {
     if (!domain) return;
 
     try {
+      const { resolveMx } = await import('node:dns/promises');
       const mxRecords = await resolveMx(domain);
       if (mxRecords.length === 0) {
         ctx.report({

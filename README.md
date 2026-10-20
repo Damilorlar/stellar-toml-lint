@@ -81,6 +81,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--strict`           | Treat warnings as errors                                              |
 | `--max-warnings <n>` | Fail if warnings exceed `n`                                           |
 | `--check-network`    | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
+| `--audit-fees`       | Compare fee disclosures across SEP-1, SEP-6, SEP-24, and SEP-38      |
 | `--off <rule>`       | Disable a rule (repeatable)                                           |
 | `--error <rule>`     | Raise a rule to error (repeatable)                                    |
 | `--warn <rule>`      | Lower a rule to warning (repeatable)                                  |
@@ -97,6 +98,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--strict`                | Treat warnings as errors                                              |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                           |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
+| `--audit-fees`            | Compare fee disclosures across SEP-1, SEP-6, SEP-24, and SEP-38       |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                      |
 | `--webhook-discord <url>` | POST a Discord embed with the run summary                             |
 | `--off <rule>`            | Disable a rule (repeatable)                                           |
@@ -374,6 +376,15 @@ wallet that cannot negotiate exchange rates fails the run instead of at transfer
 `/quote` route is probed too: a 5xx emits `sep38/quote-endpoint-error`, and a 200 that is not a JSON
 object emits `sep38/malformed-quote-response`, while the 400/401/404 a bare unauthenticated GET
 legitimately earns stays silent.
+
+With `--check-network --audit-fees`, the linter also compares the fees an anchor publishes in
+`[[CURRENCIES]]` (`fee_fixed`, `fee_percent`, `fee_minimum`, and tiered `fee_tiers`/`fee_schedule`
+structures) against the deposit and withdrawal fees returned by `TRANSFER_SERVER/info`,
+`TRANSFER_SERVER_SEP0024/info`, and any explicit fee fields in `ANCHOR_QUOTE_SERVER/prices`. Fixed,
+percentage, or tiered schedules that disagree for the same asset emit
+`fees/contradictory-fee-schedules` (error), so a wallet never discovers the real price mid-transfer.
+An endpoint that charges a higher percentage than `stellar.toml` declares emits
+`fees/undisclosed-percentage-fee` (warning), surfacing hidden consumer costs before they are applied.
 
 ### Severity
 
