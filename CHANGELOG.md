@@ -30,6 +30,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answer `--fix` gives — and the server advertises all three kinds, honouring `context.only`
   filtering with LSP's `.` subtype semantics.
 
+- `contractenvmetav0` environment-metadata auditing (#285): `src/soroban/envmeta-extractor.ts`
+  decodes the `SCEnvMetaEntry` XDR stream and emits `soroban/deprecated-compiler-version`
+  (warning) for an outdated toolchain or `soroban/malformed-envmeta-xdr` (error) when the
+  section cannot be decoded, alongside the existing `soroban/missing-env-meta` warning.
+
 - Playground share links (#372): `encodeShareLink` / `decodeShareLink` in
   `src/browser/share-state.ts` put the edited file, the rule overrides and `--strict` into the URL
   fragment as a DEFLATE-compressed, base64url-encoded payload with a SHA-256 checksum, and the
