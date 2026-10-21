@@ -35,6 +35,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (warning) for an outdated toolchain or `soroban/malformed-envmeta-xdr` (error) when the
   section cannot be decoded, alongside the existing `soroban/missing-env-meta` warning.
 
+- Multi-network contract parity (#284): `--check-network --check-parity` compares each declared
+  contract's deployed WASM byte hash and exported function signatures across Mainnet, Testnet, and
+  Futurenet, emitting `soroban/multi-network-byte-mismatch` (warning) and
+  `soroban/spec-interface-drift` (error).
+
 - Playground share links (#372): `encodeShareLink` / `decodeShareLink` in
   `src/browser/share-state.ts` put the edited file, the rule overrides and `--strict` into the URL
   fragment as a DEFLATE-compressed, base64url-encoded payload with a SHA-256 checksum, and the

@@ -1280,6 +1280,22 @@
     "style/misaligned-table-key": {
       "units": 102.6,
       "rmeFraction": 0.1
+    },
+    "soroban/deprecated-compiler-version": {
+      "units": 0,
+      "rmeFraction": 0.0189
+    },
+    "soroban/malformed-envmeta-xdr": {
+      "units": 0,
+      "rmeFraction": 0.0968
+    },
+    "soroban/multi-network-byte-mismatch": {
+      "units": 0,
+      "rmeFraction": 0.0015
+    },
+    "soroban/spec-interface-drift": {
+      "units": 0,
+      "rmeFraction": 0.0006
     }
   }
 }

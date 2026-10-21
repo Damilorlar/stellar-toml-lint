@@ -123,6 +123,7 @@ const FLAGS: readonly FlagSpec[] = [
   { long: '--verify-overlay', description: 'Handshake with each validator over the overlay' },
   { long: '--verify-dnssec', description: 'Compare DNSSEC-validating DNS resolvers' },
   { long: '--check-contracts', description: 'Verify Soroban contracts on chain' },
+  { long: '--check-parity', description: 'Compare contracts across networks' },
   { long: '--rpc-url', description: 'Soroban RPC endpoint', takesValue: true },
   { long: '--soroban-rpc', description: 'Soroban RPC endpoint (alias)', takesValue: true },
   { long: '--simulate-soroban', description: 'Dry-run SEP-41 calls against Soroban RPC' },

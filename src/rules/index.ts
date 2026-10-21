@@ -78,6 +78,7 @@ import { sep24LifecycleRules } from '../protocols/sep24-lifecycle.js';
 import { multiTenantRules } from '../network/multi-tenant.js';
 import { wasmAuditorRules } from '../soroban/wasm-auditor.js';
 import { envMetaRules } from '../soroban/env-meta.js';
+import { parityRules } from '../soroban/parity-verifier.js';
 import { eventRules } from '../soroban/events.js';
 import { adminAuditorRules } from '../soroban/admin-auditor.js';
 import { simulationRules } from '../soroban/simulation.js';
@@ -134,6 +135,7 @@ export const allRules: Rule[] = [
   ...contractMetadataRules,
   ...wasmAuditorRules,
   ...envMetaRules,
+  ...parityRules,
   ...eventRules,
   ...adminAuditorRules,
   ...simulationRules,
@@ -266,6 +268,7 @@ export {
   multiTenantRules,
   wasmAuditorRules,
   envMetaRules,
+  parityRules,
   eventRules,
   adminAuditorRules,
   simulationRules,

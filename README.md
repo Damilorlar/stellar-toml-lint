@@ -205,6 +205,7 @@ Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failur
 | `--verify-sep24-quote-lock` | Audit SEP-24 interactive deposit fee quote stability across session (requires `--check-network`)                        |
 | `--verify-clawback`         | Verify asset clawback authority (CAP-35) via Horizon and Soroban RPC (requires `--check-network`)                       |
 | `--check-contracts`         | Verify Soroban contract/WASM TTL and the SEP-45 auth interface online                                                   |
+| `--check-parity`            | Compare declared contracts' WASM hashes and interfaces across Mainnet, Testnet, and Futurenet                           |
 | `--soroban-rpc <url>`       | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`)                                       |
 | `--evm-rpc <url>`           | EVM JSON-RPC endpoint for reading locked bridge reserves under `--check-network`                                        |
 | `--simulate-soroban`        | With `--check-network`: dry-run the SEP-41 read calls against the Soroban RPC                                           |
@@ -248,6 +249,7 @@ Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failur
 | `--check-network`           | Verify accounts, CORS pre-flight responses, `HORIZON_URL`, SEP-8 flags, `ANCHOR_QUOTE_SERVER`, and SEP-6 `/info` online |
 | `--verify-sep10`            | Verify SEP-10 nonce uniqueness and replay resistance (requires `--check-network`)                                       |
 | `--check-contracts`         | Verify Soroban contract/WASM TTL and the SEP-45 auth interface online                                                   |
+| `--check-parity`            | Compare declared contracts' WASM hashes and interfaces across Mainnet, Testnet, and Futurenet                           |
 | `--soroban-rpc <url>`       | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`)                                       |
 | `--evm-rpc <url>`           | EVM JSON-RPC endpoint for reading locked bridge reserves under `--check-network`                                        |
 | `--simulate-soroban`        | With `--check-network`: dry-run the SEP-41 read calls against the Soroban RPC                                           |
@@ -325,6 +327,7 @@ failure.
 | `--verify-dnssec`                  | Compare A/AAAA answers across Cloudflare, Google, and Quad9 DoH resolvers (requires `--check-network`)                                                                                                                                                          |
 | `--follow-links`                   | Fetch and lint the `toml` pointers in `CURRENCIES` (implied by `--domain`)                                                                                                                                                                                      |
 | `--check-contracts`                | Verify Soroban contracts exist on chain, their WASM is not evicted, their TTL, the SEP-45 auth interface, their dependency contracts, and their custom error codes                                                                                              |
+| `--check-parity`                   | With `--check-network`: compare declared contracts' WASM byte hashes and exported interfaces across Mainnet, Testnet, and Futurenet                                                                                                                             |
 | `--rpc-url <url>`                  | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`; `--soroban-rpc` is an alias)                                                                                                                                                  |
 | `--simulate-soroban`               | With `--check-network`: dry-run the SEP-41 read calls against the Soroban RPC without submitting a transaction                                                                                                                                                  |
 | `--soroban-rent-audit`             | With `--check-network`: audit contract instance storage footprint, TTL expiration, and projected ledger rent costs                                                                                                                                              |
@@ -2310,6 +2313,23 @@ compared against `NETWORK_PASSPHRASE`:
 | `soroban/network-mismatch`         | error    | The contract is absent from the declared network but live elsewhere, or `HORIZON_URL` serves a different network than `NETWORK_PASSPHRASE` |
 
 A network whose RPC did not answer is not treated as "absent", so an outage produces no finding.
+
+**WASM parity across networks** (with `--check-network --check-parity`) — deployments promoted
+between networks can drift: a Testnet build is upgraded while Mainnet still runs the old code, or the
+same version is rebuilt with a different interface. Every declared contract is fetched on each
+network where it exists, and the raw byte hashes and exported function signatures are compared:
+
+| Rule                                  | Severity | Fires when                                                        |
+| ------------------------------------- | -------- | ----------------------------------------------------------------- |
+| `soroban/multi-network-byte-mismatch` | warning  | The contract's WASM bytecode differs between networks             |
+| `soroban/spec-interface-drift`        | error    | The contract's exported function names, inputs, or outputs differ |
+
+Networks where the contract is absent and RPCs that cannot answer are skipped, so a deliberate
+Testnet-only deployment is not reported as drift.
+
+```bash
+stellar-toml-lint stellar.toml --check-network --check-parity
+```
 
 **Testnet contracts in a Mainnet file** (offline) — the same copy-paste mistake is caught without the
 network. Copying a staging file and updating only `NETWORK_PASSPHRASE` leaves the Soroban addresses
