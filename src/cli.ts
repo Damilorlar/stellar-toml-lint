@@ -737,6 +737,7 @@ async function main(argv: string[]): Promise<number> {
             strict,
             rules,
             checkNetwork: cli.checkNetwork,
+            ...(cli.mockFixtures === undefined ? {} : { mockFixtures: cli.mockFixtures }),
             followLinks: true,
             ...otelRuleHook,
           },
@@ -1080,6 +1081,7 @@ async function main(argv: string[]): Promise<number> {
             strict: fileStrict,
             rules,
             checkNetwork: cli.checkNetwork,
+            ...(cli.mockFixtures === undefined ? {} : { mockFixtures: cli.mockFixtures }),
             ...(cli.domain ? { domain: cli.domain } : {}),
             ...otelRuleHook,
           });

@@ -151,6 +151,13 @@ export interface LintOptions {
   /** Verify network-dependent account and currency metadata checks. */
   checkNetwork?: boolean;
   /**
+   * Serve network checks from recorded fixtures instead of the network.
+   *
+   * When set, rules must not open sockets of their own: DNS, TLS, and raw
+   * probes are skipped, exactly as the CLI's fixture transport skips HTTP.
+   */
+  mockFixtures?: string;
+  /**
    * Fetch and lint the `toml` pointers referenced by `CURRENCIES` entries.
    *
    * Consumes the caller's transport, so a stubbed `fetchImpl` keeps the linked

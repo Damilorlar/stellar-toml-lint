@@ -257,6 +257,13 @@ export class IncrementalParser {
     const oldStarts = lineStarts(previous.text);
     const touched = touchedEntries(previous.document, delta, oldStarts);
 
+    // An edit after the last entry has no following entry to reparse, so a
+    // new entry would be invisible to the splice. Only a pure whitespace
+    // append is trivia; anything else needs the full path.
+    if (touched.length === 0 && text.slice(delta.startOffset, delta.newEndOffset).trim() !== '') {
+      return undefined;
+    }
+
     // Trivia-only edit: no entry's text changed, so every previous diagnostic
     // stays true — its position just moves with the lines below the edit.
     if (touched.length === 0) {
