@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `contractenvmetav0` environment-metadata auditing (#285): `src/soroban/envmeta-extractor.ts`
+  decodes the `SCEnvMetaEntry` XDR stream and emits `soroban/deprecated-compiler-version`
+  (warning) for an outdated toolchain or `soroban/malformed-envmeta-xdr` (error) when the
+  section cannot be decoded, alongside the existing `soroban/missing-env-meta` warning.
+
 - Playground share links (#372): `encodeShareLink` / `decodeShareLink` in
   `src/browser/share-state.ts` put the edited file, the rule overrides and `--strict` into the URL
   fragment as a DEFLATE-compressed, base64url-encoded payload with a SHA-256 checksum, and the
@@ -311,7 +316,7 @@ main
   markers, red/green word-level highlights inside changed lines, and a `... N unchanged lines ...`
   fold across long runs of context, rendered by `renderSplitDiff(base, target, options)` in
   `src/reporters/split-diff.ts`. `--diff` also accepts a single value — `stellar-toml-lint --diff
-  other.toml` compares `./stellar.toml` (or the first positional path) against `other.toml` — while
+other.toml` compares `./stellar.toml` (or the first positional path) against `other.toml` — while
   the two-value form and the exit code, which comes from the semantic comparison either way, are
   unchanged.
 

@@ -376,7 +376,8 @@ For every contract a file declares under `[[CURRENCIES]]`, on-chain audits run u
 | Rule                                       | Severity | Fires when                                                                              |
 | ------------------------------------------ | -------- | --------------------------------------------------------------------------------------- |
 | `soroban/missing-env-meta`                 | warning  | The WASM embeds no `contractenvmetav0` environment metadata                             |
-| `soroban/deprecated-protocol-version`      | error    | The contract was compiled against an older protocol than the network runs               |
+| `soroban/deprecated-compiler-version`      | warning  | The contract was compiled against an older protocol than the network runs               |
+| `soroban/malformed-envmeta-xdr`            | error    | The `contractenvmetav0` section exists but is not valid `SCEnvMetaEntry` XDR            |
 | `soroban/event-topic-mismatch`             | warning  | A SEP-41 event uses non-standard topics                                                 |
 | `soroban/event-data-type-invalid`          | error    | A SEP-41 event's amount is not an `i128`                                                |
 | `soroban/single-signer-contract-admin`     | warning  | The contract's stored `admin`/`owner` is a single-signer account                        |
@@ -391,7 +392,8 @@ For every contract a file declares under `[[CURRENCIES]]`, on-chain audits run u
 | `soroban/instance-storage-data-mismatch`   | error    | Instance storage `decimal` disagrees with `display_decimals` in stellar.toml            |
 
 The environment-metadata audit reads the `contractenvmetav0` custom section and compares the declared
-interface (`protocol`) version against the network's. The event audit reads the `contractspecv0`
+interface (`protocol`) version against the network's; a section that cannot be decoded emits
+`soroban/malformed-envmeta-xdr` instead of being mistaken for absent metadata. The event audit reads the `contractspecv0`
 event declarations and queries `getEvents` for recent emissions, so a renamed topic or a string amount
 is caught before wallets and indexers miss the balance change. The admin audit reads the
 `admin`/`owner` instance-storage key, classifies the administrator as an account or another contract,
